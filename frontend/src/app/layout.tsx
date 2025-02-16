@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import Link from "next/link";
 import Footer from "@/components/Footer";
+import { BarChart, TrendingUp } from '@mui/icons-material';
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -10,6 +11,13 @@ export const metadata: Metadata = {
   title: "Financial AI",
   description: "AI-powered financial analysis and portfolio management",
 };
+
+const navigation = [
+  { name: 'Dashboard', href: '/', icon: BarChart },
+  { name: 'Portfolio Analysis', href: '/portfolio', icon: BarChart },
+  { name: 'Sentiment Analysis', href: '/sentiment', icon: TrendingUp },
+  // ... other navigation items ...
+];
 
 export default function RootLayout({
   children,

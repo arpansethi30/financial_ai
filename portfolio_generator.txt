@@ -1,0 +1,1270 @@
+import os
+import requests
+from datetime import datetime, timedelta
+from typing import List, Dict
+import yfinance as yf
+from newsapi import NewsApiClient
+from dotenv import load_dotenv
+import time
+
+# Load environment variables
+load_dotenv()
+TOGETHER_API_KEY = os.getenv('TOGETHER_API_KEY')
+NEWS_API_KEY = os.getenv('NEWS_API_KEY')
+
+class StockSentimentAnalyzer:
+    def __init__(self, ticker: str):
+        """Initialize with a stock ticker"""
+        self.ticker = ticker
+        self.stock = yf.Ticker(ticker)
+        self.company_name = self.stock.info.get('longName', ticker)
+        self.newsapi = NewsApiClient(api_key=NEWS_API_KEY)
+
+    def get_news_and_sentiment(self) -> Dict:
+        """Get news and analyze sentiment"""
+        try:
+            # Get recent news
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=7)
+            
+            news_articles = self.newsapi.get_everything(
+                q=f'({self.ticker} OR "{self.company_name}") AND (stock OR market)',
+                from_param=start_date.strftime('%Y-%m-%d'),
+                to=end_date.strftime('%Y-%m-%d'),
+                language='en',
+                sort_by='relevancy'
+            )
+            
+            # Get stock price info
+            info = self.stock.info
+            current_price = info.get('currentPrice', 0)
+            price_change = info.get('regularMarketChangePercent', 0)
+            
+            # Prepare news summary
+            news_summary = []
+            for article in news_articles.get('articles', [])[:5]:
+                news_summary.append(f"Title: {article['title']}\nSummary: {article['description']}")
+            
+            # Create analysis prompt
+            prompt = f"""
+            Analyze the market sentiment for {self.ticker} ({self.company_name}) based on recent news and market data:
+
+            Stock Information:
+            - Current Price: ${current_price}
+            - Price Change: {price_change:.2f}%
+
+            Recent News:
+            {' '.join(news_summary)}
+
+            Please provide a concise sentiment analysis covering:
+            1. Overall Market Sentiment (Bullish/Bearish/Neutral)
+            2. Key Themes from News
+            3. Short-term Sentiment Outlook
+            4. Key Risks or Opportunities
+            """
+            
+            # Get sentiment analysis from AI
+            headers = {
+                'Authorization': f'Bearer {TOGETHER_API_KEY}',
+                'Content-Type': 'application/json'
+            }
+            
+            data = {
+                'model': 'mistralai/Mixtral-8x7B-Instruct-v0.1',
+                'prompt': prompt,
+                'max_tokens': 500,
+                'temperature': 0.3,
+                'top_p': 0.7
+            }
+            
+            response = requests.post(
+                'https://api.together.xyz/v1/completions',
+                headers=headers,
+                json=data
+            )
+            
+            if response.status_code == 200:
+                response_data = response.json()
+                if 'choices' in response_data and len(response_data['choices']) > 0:
+                    return {
+                        'status': 'success',
+                        'analysis': response_data['choices'][0]['text'].strip(),
+                        'news': news_articles.get('articles', [])[:5]
+                    }
+            
+            return {
+                'status': 'error',
+                'message': 'Failed to get sentiment analysis'
+            }
+            
+        except Exception as e:
+            return {
+                'status': 'error',
+                'message': str(e)
+            }
+
+def main():
+    try:
+        # Get stock ticker
+        ticker = input("Enter stock ticker (default: NVDA): ").strip().upper() or "NVDA"
+        print(f"\nAnalyzing sentiment for {ticker}...")
+        
+        # Get sentiment analysis
+        analyzer = StockSentimentAnalyzer(ticker)
+        result = analyzer.get_news_and_sentiment()
+        
+        if result['status'] == 'success':
+            # Print sentiment analysis
+            print("\nSentiment Analysis:")
+            print("=" * 80)
+            print(result['analysis'])
+            print("=" * 80)
+            
+            # Print headlines
+            print("\nRecent Headlines:")
+            for idx, article in enumerate(result['news'], 1):
+                print(f"\n{idx}. {article['title']}")
+                print(f"Source: {article['source']['name']}")
+        else:
+            print(f"\nError: {result['message']}")
+            
+    except Exception as e:
+        print(f"\nError: {str(e)}")
+
+if __name__ == "__main__":
+    main() 
+
+
+
+import os
+import requests
+from datetime import datetime, timedelta
+from typing import List, Dict
+import pandas as pd
+import yfinance as yf
+from newsapi import NewsApiClient
+from dotenv import load_dotenv
+import json
+
+# Load environment variables
+load_dotenv()
+
+# API Keys
+TOGETHER_API_KEY = os.getenv('TOGETHER_API_KEY')
+NEWS_API_KEY = os.getenv('NEWS_API_KEY')
+
+# Initialize News API client
+newsapi = NewsApiClient(api_key=NEWS_API_KEY)
+
+class EnhancedStockAnalyzer:
+    def __init__(self, ticker: str):
+        """Initialize EnhancedStockAnalyzer with a stock ticker"""
+        self.ticker = ticker
+        self.stock = yf.Ticker(ticker)
+        
+    def fetch_comprehensive_news(self, days_back: int = 7) -> List[Dict]:
+        """Fetch news from multiple sources"""
+        try:
+            # Get news from News API
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=days_back)
+            
+            newsapi_articles = newsapi.get_everything(
+                q=f"{self.ticker} OR {self.stock.info.get('longName', '')}",
+                from_param=start_date.strftime('%Y-%m-%d'),
+                to=end_date.strftime('%Y-%m-%d'),
+                language='en',
+                sort_by='relevancy'
+            )
+            
+            # Get news from Yahoo Finance
+            yf_news = self.stock.news
+            
+            # Combine and format news
+            all_news = []
+            
+            # Add NewsAPI articles
+            for article in newsapi_articles.get('articles', []):
+                all_news.append({
+                    'source': 'NewsAPI',
+                    'title': article.get('title', ''),
+                    'summary': article.get('description', ''),
+                    'link': article.get('url', ''),
+                    'published': article.get('publishedAt', '')
+                })
+            
+            # Add Yahoo Finance articles
+            for article in yf_news:
+                all_news.append({
+                    'source': 'Yahoo Finance',
+                    'title': article.get('title', ''),
+                    'summary': article.get('summary', ''),
+                    'link': article.get('link', ''),
+                    'published': article.get('published', '')
+                })
+            
+            return all_news[:10]  # Return top 10 most relevant articles
+            
+        except Exception as e:
+            print(f"Error fetching news: {e}")
+            return []
+
+    def get_comprehensive_financials(self) -> Dict:
+        """Get financial data from Yahoo Finance"""
+        try:
+            # Get Yahoo Finance data
+            info = self.stock.info
+            
+            # Get historical data for technical analysis
+            hist = self.stock.history(period="1y")
+            
+            # Calculate additional metrics
+            metrics = {
+                'Company Overview': {
+                    'Market Cap': info.get('marketCap'),
+                    'PE Ratio': info.get('forwardPE'),
+                    'PEG Ratio': info.get('pegRatio'),
+                    'Dividend Yield': info.get('dividendYield'),
+                    'Profit Margins': info.get('profitMargins'),
+                    'Operating Margins': info.get('operatingMargins'),
+                    'Return on Equity': info.get('returnOnEquity'),
+                    'Beta': info.get('beta')
+                },
+                'Growth & Performance': {
+                    'Revenue Growth': info.get('revenueGrowth'),
+                    'Earnings Growth': info.get('earningsGrowth'),
+                    'Quarterly Growth': info.get('earningsQuarterlyGrowth'),
+                    'Gross Profits': info.get('grossProfits'),
+                    'Free Cash Flow': info.get('freeCashflow')
+                },
+                'Technical Indicators': {
+                    '50 Day MA': info.get('fiftyDayAverage'),
+                    '200 Day MA': info.get('twoHundredDayAverage'),
+                    '52 Week High': info.get('fiftyTwoWeekHigh'),
+                    '52 Week Low': info.get('fiftyTwoWeekLow'),
+                    'RSI': self._calculate_rsi(hist['Close']),
+                    'Current Price': info.get('currentPrice'),
+                    'Volume': info.get('volume'),
+                    'Avg Volume': info.get('averageVolume')
+                },
+                'Financial Health': {
+                    'Total Revenue': info.get('totalRevenue'),
+                    'Total Cash': info.get('totalCash'),
+                    'Total Debt': info.get('totalDebt'),
+                    'Quick Ratio': info.get('quickRatio'),
+                    'Current Ratio': info.get('currentRatio'),
+                    'Debt to Equity': info.get('debtToEquity'),
+                    'Book Value': info.get('bookValue')
+                }
+            }
+            
+            return metrics
+        except Exception as e:
+            print(f"Error fetching financial data: {e}")
+            return {}
+
+    def _calculate_rsi(self, prices, periods=14):
+        """Calculate RSI technical indicator"""
+        try:
+            delta = prices.diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=periods).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=periods).mean()
+            rs = gain / loss
+            return round(float(100 - (100 / (1 + rs)).iloc[-1]), 2)
+        except:
+            return 'N/A'
+
+    def analyze_with_deepseek(self, news_articles: List[Dict], financials: Dict) -> Dict:
+        """Perform comprehensive analysis using DeepSeek model"""
+        try:
+            # Prepare the prompt with all available data
+            prompt = f"""
+            Perform a comprehensive analysis of {self.ticker} stock based on the following data:
+            
+            1. Financial Metrics:
+            {pd.json_normalize(financials).to_string()}
+            
+            2. Recent News Headlines:
+            {', '.join([article['title'] for article in news_articles[:5]])}
+            
+            Please provide a detailed analysis in the following format:
+            1. Financial Health Assessment
+               - Current Financial Position
+               - Growth Prospects
+               - Risk Analysis
+            
+            2. Market Sentiment Analysis
+               - News Sentiment
+               - Market Perception
+               - Key Developments
+            
+            3. Technical Analysis
+               - Price Trends
+               - Key Technical Indicators
+               - Support/Resistance Levels
+            
+            4. Investment Recommendation
+               - Short-term Outlook (1-3 months)
+               - Long-term Outlook (1-2 years)
+               - Risk Factors
+               - Target Price Range
+            """
+            
+            # Make API request to Together AI
+            headers = {
+                'Authorization': f'Bearer {TOGETHER_API_KEY}',
+                'Content-Type': 'application/json'
+            }
+            
+            data = {
+                'model': 'mistralai/Mixtral-8x7B-Instruct-v0.1',
+                'prompt': prompt,
+                'max_tokens': 1500,
+                'temperature': 0.3,
+                'top_p': 0.7,
+                'top_k': 50,
+                'repetition_penalty': 1.1
+            }
+            
+            response = requests.post(
+                'https://api.together.xyz/v1/completions',
+                headers=headers,
+                json=data
+            )
+            
+            if response.status_code == 200:
+                response_data = response.json()
+                if 'choices' in response_data and len(response_data['choices']) > 0:
+                    analysis = response_data['choices'][0]['text']
+                    return {
+                        'status': 'success',
+                        'analysis': analysis
+                    }
+                else:
+                    return {
+                        'status': 'error',
+                        'message': 'No analysis generated'
+                    }
+            else:
+                print(f"API Response: {response.text}")  # Debug line
+                return {
+                    'status': 'error',
+                    'message': f"API Error: {response.status_code}"
+                }
+                
+        except Exception as e:
+            print(f"Exception details: {str(e)}")  # Debug line
+            return {
+                'status': 'error',
+                'message': str(e)
+            }
+
+def main():
+    # Analyze NVIDIA stock
+    ticker = "NVDA"
+    print(f"\n=== Comprehensive Analysis for {ticker} ===")
+    
+    analyzer = EnhancedStockAnalyzer(ticker)
+    
+    # Fetch all data
+    print("\nFetching news and financial data...")
+    news = analyzer.fetch_comprehensive_news(days_back=7)
+    financials = analyzer.get_comprehensive_financials()
+    
+    # Perform analysis
+    print("\nPerforming comprehensive analysis...")
+    analysis = analyzer.analyze_with_deepseek(news, financials)
+    
+    # Display results
+    if analysis['status'] == 'success':
+        print("\nAnalysis Results:")
+        print(analysis['analysis'])
+        
+        print("\nKey Financial Metrics:")
+        for category, metrics in financials.items():
+            print(f"\n{category}:")
+            for metric, value in metrics.items():
+                print(f"{metric}: {value}")
+            
+        print("\nRecent News Headlines:")
+        for idx, article in enumerate(news[:5], 1):
+            print(f"\n{idx}. {article['title']}")
+            print(f"Source: {article['source']}")
+            print(f"Link: {article['link']}")
+    else:
+        print(f"\nError in analysis: {analysis['message']}")
+
+if __name__ == "__main__":
+    main() 
+
+
+
+import yfinance as yf
+import numpy as np
+import pandas as pd
+from typing import Dict, List
+import logging
+import ta
+from newsapi import NewsApiClient
+import google.generativeai as genai
+from datetime import datetime, timedelta
+import os
+from dotenv import load_dotenv
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Load environment variables
+load_dotenv()
+
+class PortfolioGenerator:
+    def __init__(self):
+        """Initialize the Portfolio Generator with necessary API keys"""
+        # Initialize API clients
+        self.newsapi = NewsApiClient(api_key=os.getenv('NEWS_API_KEY'))
+        genai.configure(api_key=os.getenv('GOOGLE_AI_API_KEY'))
+        self.ai_model = genai.GenerativeModel('gemini-pro')
+        
+        # Sector mappings with predefined weights
+        self.sector_weights = {
+            'conservative': {
+                'Technology': 0.15,
+                'Healthcare': 0.15,
+                'Consumer Staples': 0.20,
+                'Utilities': 0.20,
+                'Industrial': 0.15,
+                'Finance': 0.15
+            },
+            'moderate': {
+                'Technology': 0.25,
+                'Healthcare': 0.20,
+                'Consumer Discretionary': 0.15,
+                'Finance': 0.15,
+                'Industrial': 0.15,
+                'Energy': 0.10
+            },
+            'aggressive': {
+                'Technology': 0.35,
+                'Consumer Discretionary': 0.20,
+                'Finance': 0.15,
+                'Healthcare': 0.15,
+                'Energy': 0.15
+            }
+        }
+        
+        # Extended sector tickers with more options
+        self.sector_tickers = {
+            'Technology': ['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'AMD', 'ADBE', 'CRM', 'INTC', 'CSCO', 'ORCL'],
+            'Healthcare': ['JNJ', 'UNH', 'PFE', 'ABT', 'TMO', 'MRK', 'ABBV', 'DHR', 'BMY', 'AMGN'],
+            'Finance': ['JPM', 'BAC', 'V', 'MA', 'GS', 'MS', 'BLK', 'C', 'AXP', 'SPGI'],
+            'Consumer Staples': ['PG', 'KO', 'PEP', 'WMT', 'COST', 'PM', 'TGT', 'EL', 'CL', 'KMB'],
+            'Consumer Discretionary': ['AMZN', 'TSLA', 'HD', 'MCD', 'NKE', 'SBUX', 'TJX', 'LOW', 'BKNG', 'MAR'],
+            'Industrial': ['HON', 'UPS', 'CAT', 'DE', 'BA', 'MMM', 'GE', 'LMT', 'RTX', 'UNP'],
+            'Energy': ['XOM', 'CVX', 'COP', 'SLB', 'EOG', 'PSX', 'PXD', 'VLO', 'MPC', 'OXY'],
+            'Utilities': ['NEE', 'DUK', 'SO', 'D', 'AEP', 'SRE', 'EXC', 'XEL', 'WEC', 'ES']
+        }
+
+    def analyze_fundamentals(self, ticker: str) -> Dict:
+        """Analyze fundamental metrics for a given stock"""
+        try:
+            stock = yf.Ticker(ticker)
+            info = stock.info
+            
+            fundamentals = {
+                'current_price': info.get('regularMarketPrice', 0)
+            }
+            
+            return fundamentals
+        except Exception as e:
+            logger.error(f"Error analyzing fundamentals for {ticker}: {str(e)}")
+            return None
+
+    def analyze_technicals(self, ticker: str) -> Dict:
+        """Analyze technical indicators for a given stock"""
+        try:
+            stock = yf.Ticker(ticker)
+            hist = stock.history(period='1y')
+            
+            if len(hist) < 50:
+                return None
+            
+            # Calculate technical indicators using ta library
+            technicals = {
+                'RSI': ta.momentum.rsi(hist['Close'], window=14).iloc[-1],
+                'MACD': ta.trend.macd_diff(hist['Close']).iloc[-1],
+                'BB_Upper': ta.volatility.bollinger_hband(hist['Close']).iloc[-1],
+                'BB_Middle': ta.volatility.bollinger_mavg(hist['Close']).iloc[-1],
+                'BB_Lower': ta.volatility.bollinger_lband(hist['Close']).iloc[-1],
+                'ADX': ta.trend.adx(hist['High'], hist['Low'], hist['Close']).iloc[-1],
+                'Volume_MA': hist['Volume'].rolling(window=20).mean().iloc[-1]
+            }
+            
+            score = self._score_technicals(technicals, hist['Close'].iloc[-1])
+            technicals['Overall_Score'] = score
+            
+            return technicals
+        except Exception as e:
+            logger.error(f"Error analyzing technicals for {ticker}: {str(e)}")
+            return None
+
+    def _score_technicals(self, metrics: Dict, current_price: float) -> float:
+        """Score technical metrics"""
+        scores = []
+        
+        # RSI Score (0-100)
+        rsi_score = 100 - abs(50 - metrics['RSI'])
+        scores.append(rsi_score)
+        
+        # MACD Score (normalized to 0-100)
+        macd_score = 50 + (metrics['MACD'] * 10)
+        scores.append(max(min(macd_score, 100), 0))
+        
+        # Bollinger Bands Position Score (0-100)
+        bb_position = (current_price - metrics['BB_Lower']) / (metrics['BB_Upper'] - metrics['BB_Lower'])
+        bb_score = 100 - abs(0.5 - bb_position) * 100
+        scores.append(bb_score)
+        
+        # ADX Score (0-100)
+        adx_score = min(metrics['ADX'], 100)
+        scores.append(adx_score)
+        
+        return np.mean(scores)
+
+    def get_news_sentiment(self, ticker: str) -> Dict:
+        """Analyze news sentiment for a given stock"""
+        try:
+            news = self.newsapi.get_everything(
+                q=ticker,
+                language='en',
+                sort_by='relevancy',
+                page_size=10
+            )
+            
+            articles_text = " ".join([article['title'] + " " + article['description'] for article in news['articles']])
+            sentiment_prompt = f"Analyze the sentiment of these news articles about {ticker}: {articles_text}"
+            
+            sentiment_response = self.ai_model.generate_content(sentiment_prompt)
+            sentiment_score = self._process_sentiment(sentiment_response.text)
+            
+            return {
+                'sentiment_score': sentiment_score,
+                'articles': news['articles'][:3]
+            }
+        except Exception as e:
+            logger.error(f"Error getting news sentiment for {ticker}: {str(e)}")
+            return None
+
+    def _process_sentiment(self, sentiment_text: str) -> float:
+        """Process sentiment analysis text to get a numerical score"""
+        positive_words = ['positive', 'bullish', 'growth', 'increase', 'gain']
+        negative_words = ['negative', 'bearish', 'decline', 'decrease', 'loss']
+        
+        sentiment_score = 0
+        for word in positive_words:
+            if word in sentiment_text.lower():
+                sentiment_score += 0.2
+        for word in negative_words:
+            if word in sentiment_text.lower():
+                sentiment_score -= 0.2
+                
+        return max(min(sentiment_score, 1), -1)
+
+    def generate_portfolio(self, request_data: Dict) -> Dict:
+        """Generate a portfolio based on risk appetite, investment amount, and company count"""
+        try:
+            risk_appetite = request_data['risk_appetite']
+            investment_amount = request_data['investment_amount']
+            investment_period = request_data.get('investment_period', 5)
+            company_count = request_data.get('company_count', 10)  # Get desired company count
+            
+            sector_weights = self.sector_weights[risk_appetite]
+            stock_recommendations = {}
+            total_investment = 0
+            total_stocks = 0
+            
+            # Calculate how many companies to pick from each sector
+            total_sectors = len(sector_weights)
+            base_companies_per_sector = company_count // total_sectors
+            extra_companies = company_count % total_sectors
+            
+            # Sort sectors by weight to allocate extra companies to highest weight sectors
+            sorted_sectors = sorted(sector_weights.items(), key=lambda x: x[1], reverse=True)
+            
+            for sector, weight in sorted_sectors:
+                sector_amount = investment_amount * weight
+                sector_stocks = []
+                
+                # Determine number of companies for this sector
+                sector_company_count = base_companies_per_sector
+                if extra_companies > 0:
+                    sector_company_count += 1
+                    extra_companies -= 1
+                
+                # Get all available stocks for this sector
+                available_stocks = []
+                for ticker in self.sector_tickers[sector]:
+                    fundamentals = self.analyze_fundamentals(ticker)
+                    if not fundamentals or fundamentals['current_price'] <= 0:
+                        continue
+                        
+                    technicals = self.analyze_technicals(ticker)
+                    if not technicals:
+                        continue
+                        
+                    available_stocks.append({
+                        'ticker': ticker,
+                        'fundamentals': fundamentals,
+                        'technical_score': technicals['Overall_Score']
+                    })
+                
+                # Sort stocks by technical score and take the top N for this sector
+                available_stocks.sort(key=lambda x: x['technical_score'], reverse=True)
+                selected_stocks = available_stocks[:sector_company_count]
+                
+                # Calculate per-stock allocation for this sector
+                per_stock_amount = sector_amount / len(selected_stocks)
+                
+                for stock in selected_stocks:
+                    current_price = stock['fundamentals']['current_price']
+                    suggested_shares = max(1, int(per_stock_amount / current_price))
+                    actual_amount = suggested_shares * current_price
+                    
+                    # Determine risk level based on technical score and sector
+                    risk_level = self._determine_risk_level(stock['technical_score'], sector, risk_appetite)
+                    
+                    sector_stocks.append({
+                        'symbol': stock['ticker'],
+                        'weight': (actual_amount / investment_amount) * 100,  # Calculate actual weight
+                        'amount': actual_amount,
+                        'suggested_shares': suggested_shares,
+                        'risk_level': risk_level,
+                        'fundamentals': stock['fundamentals']
+                    })
+                    
+                    total_investment += actual_amount
+                    total_stocks += 1
+                
+                if sector_stocks:
+                    stock_recommendations[sector] = sector_stocks
+            
+            # Generate detailed analysis
+            analysis = self._generate_detailed_analysis(
+                risk_appetite,
+                investment_period,
+                total_investment,
+                total_stocks,
+                stock_recommendations,
+                sector_weights
+            )
+            
+            return {
+                'portfolio': {
+                    'recommendations': {
+                        'stock_recommendations': stock_recommendations,
+                        'allocation_summary': {
+                            'total_investment': total_investment,
+                            'total_stocks': total_stocks,
+                            'total_sectors': len(stock_recommendations)
+                        }
+                    }
+                },
+                'analysis': analysis
+            }
+        except Exception as e:
+            logger.error(f"Error generating portfolio: {str(e)}")
+            raise
+
+    def _determine_risk_level(self, technical_score: float, sector: str, risk_appetite: str) -> str:
+        """Determine risk level based on technical score, sector, and risk appetite"""
+        high_risk_sectors = ['Technology', 'Energy']
+        medium_risk_sectors = ['Finance', 'Consumer Discretionary', 'Industrial']
+        
+        # Base risk on technical score
+        if technical_score >= 75:
+            base_risk = 'low'
+        elif technical_score >= 50:
+            base_risk = 'medium'
+        else:
+            base_risk = 'high'
+            
+        # Adjust for sector
+        if sector in high_risk_sectors:
+            base_risk = 'high' if base_risk != 'low' else 'medium'
+        elif sector in medium_risk_sectors:
+            base_risk = 'medium' if base_risk == 'low' else base_risk
+            
+        # Adjust for risk appetite
+        if risk_appetite == 'aggressive':
+            return base_risk
+        elif risk_appetite == 'moderate':
+            return 'medium' if base_risk == 'high' else base_risk
+        else:  # conservative
+            return 'medium' if base_risk == 'high' else 'low'
+
+    def _generate_detailed_analysis(self, risk_appetite: str, investment_period: int,
+                                  total_investment: float, total_stocks: int,
+                                  stock_recommendations: Dict, sector_weights: Dict) -> str:
+        """Generate detailed portfolio analysis"""
+        sector_allocations = []
+        for sector, stocks in stock_recommendations.items():
+            sector_total = sum(stock['amount'] for stock in stocks)
+            sector_weight = (sector_total / total_investment) * 100
+            sector_allocations.append(f"- {sector}: {sector_weight:.1f}% ({len(stocks)} stocks)")
+        
+        risk_descriptions = {
+            'conservative': "focuses on stable, established companies with strong fundamentals and lower volatility",
+            'moderate': "balances growth potential with stability through a mix of established and growing companies",
+            'aggressive': "emphasizes growth potential through technology and emerging market leaders"
+        }
+        
+        rebalancing_frequency = {
+            'conservative': 'annually',
+            'moderate': 'semi-annually',
+            'aggressive': 'quarterly'
+        }
+        
+        analysis = f"""Investment Strategy Analysis:
+
+Risk Profile: {risk_appetite.title()}
+Investment Period: {investment_period} years
+Total Investment: ${total_investment:,.2f}
+Total Stocks: {total_stocks}
+Total Sectors: {len(stock_recommendations)}
+
+Portfolio Allocation:
+{chr(10).join(sector_allocations)}
+
+Strategy Overview:
+This {risk_appetite} portfolio {risk_descriptions[risk_appetite]}, designed for a {investment_period}-year investment horizon. The portfolio is diversified across {len(stock_recommendations)} major sectors, with each stock selected based on technical analysis, fundamental strength, and market position.
+
+Key Features:
+- Sector diversification to manage risk and capture growth opportunities
+- Stock selection based on technical and fundamental analysis
+- Risk-adjusted position sizing within sectors
+- Focus on liquid, established companies
+
+Rebalancing Recommendation:
+- Review and rebalance the portfolio {rebalancing_frequency[risk_appetite]}
+- Maintain sector weights within 5% of target allocation
+- Monitor individual positions for changes in fundamentals or technical indicators
+- Consider tax implications when rebalancing
+
+Risk Management:
+- Position sizes are adjusted based on individual stock risk levels
+- Sector weights aligned with {risk_appetite} risk profile
+- Regular monitoring of technical indicators and fundamentals
+- Stop-loss recommendations: {'15-20%' if risk_appetite == 'aggressive' else '10-15%' if risk_appetite == 'moderate' else '5-10%'} below purchase price
+"""
+        return analysis
+
+# Initialize generator
+portfolio_generator = PortfolioGenerator() 
+
+
+
+import yfinance as yf
+import pandas as pd
+import numpy as np
+from typing import List, Dict, Optional
+import logging
+from datetime import datetime, timedelta
+import ta
+from concurrent.futures import ThreadPoolExecutor
+
+logger = logging.getLogger(__name__)
+
+class PortfolioOptimizer:
+    def __init__(self):
+        # Define sector ETFs for sector analysis
+        self.sector_etfs = {
+            "Technology": "XLK",
+            "Healthcare": "XLV",
+            "Financial": "XLF",
+            "Consumer Discretionary": "XLY",
+            "Consumer Staples": "XLP",
+            "Energy": "XLE",
+            "Materials": "XLB",
+            "Industrial": "XLI",
+            "Utilities": "XLU",
+            "Real Estate": "XLRE",
+            "Communication Services": "XLC"
+        }
+        
+        # Define risk profiles with fundamental criteria
+        self.risk_profiles = {
+            "conservative": {
+                "max_stock_allocation": 50,
+                "min_large_cap": 70,
+                "max_per_sector": 20,
+                "min_dividend_yield": 2.0,
+                "min_pe_ratio": 5,
+                "max_pe_ratio": 20,
+                "min_profit_margin": 10,
+                "min_current_ratio": 1.5,
+                "max_debt_to_equity": 0.5
+            },
+            "moderate": {
+                "max_stock_allocation": 70,
+                "min_large_cap": 50,
+                "max_per_sector": 30,
+                "min_dividend_yield": 1.0,
+                "min_pe_ratio": 0,
+                "max_pe_ratio": 30,
+                "min_profit_margin": 5,
+                "min_current_ratio": 1.2,
+                "max_debt_to_equity": 1.0
+            },
+            "aggressive": {
+                "max_stock_allocation": 90,
+                "min_large_cap": 30,
+                "max_per_sector": 40,
+                "min_dividend_yield": 0,
+                "min_pe_ratio": 0,
+                "max_pe_ratio": 50,
+                "min_profit_margin": 0,
+                "min_current_ratio": 1.0,
+                "max_debt_to_equity": 2.0
+            }
+        }
+
+    def analyze_fundamentals(self, symbol: str) -> Dict:
+        """Analyze stock fundamentals"""
+        try:
+            stock = yf.Ticker(symbol)
+            info = stock.info
+            
+            return {
+                "market_cap": info.get('marketCap', 0),
+                "pe_ratio": info.get('trailingPE', None),
+                "forward_pe": info.get('forwardPE', None),
+                "peg_ratio": info.get('pegRatio', None),
+                "price_to_book": info.get('priceToBook', None),
+                "dividend_yield": info.get('dividendYield', 0),
+                "profit_margin": info.get('profitMargin', 0) * 100 if info.get('profitMargin') else 0,
+                "operating_margin": info.get('operatingMargin', 0) * 100 if info.get('operatingMargin') else 0,
+                "roa": info.get('returnOnAssets', 0) * 100 if info.get('returnOnAssets') else 0,
+                "roe": info.get('returnOnEquity', 0) * 100 if info.get('returnOnEquity') else 0,
+                "revenue_growth": info.get('revenueGrowth', 0) * 100 if info.get('revenueGrowth') else 0,
+                "debt_to_equity": info.get('debtToEquity', None),
+                "current_ratio": info.get('currentRatio', None),
+                "quick_ratio": info.get('quickRatio', None),
+                "analyst_rating": info.get('recommendationMean', None),
+                "target_price": info.get('targetMeanPrice', None),
+                "current_price": info.get('currentPrice', None)
+            }
+        except Exception as e:
+            logger.error(f"Error analyzing fundamentals for {symbol}: {str(e)}")
+            return {}
+
+    def analyze_technicals(self, symbol: str, period: str = "1y") -> Dict:
+        """Analyze technical indicators"""
+        try:
+            stock = yf.Ticker(symbol)
+            hist = stock.history(period=period)
+            
+            if not hist.empty:
+                # Calculate technical indicators
+                hist['SMA20'] = ta.trend.sma_indicator(hist['Close'], window=20)
+                hist['SMA50'] = ta.trend.sma_indicator(hist['Close'], window=50)
+                hist['SMA200'] = ta.trend.sma_indicator(hist['Close'], window=200)
+                hist['RSI'] = ta.momentum.rsi(hist['Close'], window=14)
+                hist['MACD_diff'] = ta.trend.macd_diff(hist['Close'])
+                bb_indicator = ta.volatility.BollingerBands(hist['Close'])
+                hist['BB_upper'] = bb_indicator.bollinger_hband()
+                hist['BB_lower'] = bb_indicator.bollinger_lband()
+                
+                current_price = hist['Close'].iloc[-1]
+                sma20 = hist['SMA20'].iloc[-1]
+                sma50 = hist['SMA50'].iloc[-1]
+                sma200 = hist['SMA200'].iloc[-1]
+                
+                # Calculate momentum and trend scores
+                trend_score = 0
+                trend_score += 1 if current_price > sma20 else -1
+                trend_score += 1 if current_price > sma50 else -1
+                trend_score += 1 if current_price > sma200 else -1
+                trend_score += 1 if sma20 > sma50 else -1
+                
+                return {
+                    "current_price": current_price,
+                    "sma20": sma20,
+                    "sma50": sma50,
+                    "sma200": sma200,
+                    "rsi": float(hist['RSI'].iloc[-1]),
+                    "macd": float(hist['MACD_diff'].iloc[-1]),
+                    "volatility": float(hist['Close'].pct_change().std() * np.sqrt(252) * 100),
+                    "trend_score": trend_score,
+                    "above_200_sma": current_price > sma200,
+                    "above_50_sma": current_price > sma50,
+                    "above_20_sma": current_price > sma20,
+                    "volume_trend": float(hist['Volume'].tail(20).mean() / hist['Volume'].tail(50).mean())
+                }
+            return {}
+        except Exception as e:
+            logger.error(f"Error analyzing technicals for {symbol}: {str(e)}")
+            return {}
+
+    def get_stock_score(self, fundamentals: Dict, technicals: Dict, risk_profile: Dict) -> float:
+        """Calculate overall stock score based on fundamentals and technicals"""
+        score = 0
+        max_score = 0
+        
+        # Fundamental Scoring (60% weight)
+        if fundamentals:
+            # Valuation (20%)
+            if fundamentals.get('pe_ratio'):
+                max_score += 20
+                if risk_profile['min_pe_ratio'] <= fundamentals['pe_ratio'] <= risk_profile['max_pe_ratio']:
+                    score += 20
+            
+            # Profitability (15%)
+            if fundamentals.get('profit_margin'):
+                max_score += 15
+                if fundamentals['profit_margin'] >= risk_profile['min_profit_margin']:
+                    score += 15
+            
+            # Financial Health (15%)
+            if fundamentals.get('debt_to_equity') and fundamentals.get('current_ratio'):
+                max_score += 15
+                if fundamentals['debt_to_equity'] <= risk_profile['max_debt_to_equity']:
+                    score += 7.5
+                if fundamentals['current_ratio'] >= risk_profile['min_current_ratio']:
+                    score += 7.5
+            
+            # Growth & Returns (10%)
+            if fundamentals.get('revenue_growth') and fundamentals.get('roe'):
+                max_score += 10
+                if fundamentals['revenue_growth'] > 0:
+                    score += 5
+                if fundamentals['roe'] > 10:
+                    score += 5
+        
+        # Technical Scoring (40% weight)
+        if technicals:
+            # Trend (20%)
+            max_score += 20
+            score += (technicals['trend_score'] + 4) * 2.5  # Convert -4 to +4 scale to 0-20
+            
+            # Momentum (10%)
+            if 30 <= technicals.get('rsi', 0) <= 70:
+                max_score += 10
+                score += 10
+            
+            # Volume (10%)
+            if technicals.get('volume_trend', 0) > 1:
+                max_score += 10
+                score += 10
+        
+        return (score / max_score * 100) if max_score > 0 else 0
+
+    def get_stock_recommendations(self, sector: str, risk_appetite: str, sector_amount: float, investment_period: int) -> List[Dict]:
+        """Get stock recommendations for a specific sector."""
+        try:
+            etf = yf.Ticker(self.sector_etfs[sector])
+            
+            # Get holdings with error handling
+            try:
+                holdings = etf.get_holdings()
+            except:
+                # Fallback to getting top holdings from info
+                info = etf.info
+                holdings = [h['symbol'] for h in info.get('holdings', [])][:5] if info.get('holdings') else []
+            
+            if not holdings:
+                return []
+
+            recommendations = []
+            
+            # Get top 5 holdings
+            for symbol in list(holdings.keys())[:5] if isinstance(holdings, dict) else holdings[:5]:
+                try:
+                    stock = yf.Ticker(symbol)
+                    info = stock.info
+                    
+                    if not info:
+                        continue
+                    
+                    current_price = info.get('regularMarketPrice', 0)
+                    if current_price <= 0:
+                        continue
+
+                    # Determine risk level based on beta
+                    beta = info.get('beta', 1.0)
+                    risk_level = 'High' if beta > 1.2 else 'Medium' if beta > 0.8 else 'Low'
+
+                    # Calculate weight based on risk appetite and investment period
+                    weight = 20  # Equal weight by default
+                    if risk_appetite == 'conservative':
+                        weight = 15 if risk_level == 'Low' else 10
+                    elif risk_appetite == 'aggressive':
+                        weight = 25 if risk_level == 'High' else 20
+
+                    # Adjust for investment period
+                    if investment_period > 10:  # Long-term
+                        weight *= 1.2
+                    elif investment_period < 5:  # Short-term
+                        weight *= 0.8
+
+                    # Calculate amount and shares
+                    amount = (sector_amount * weight) / 100
+                    suggested_shares = max(1, int(amount / current_price))
+                    actual_amount = suggested_shares * current_price
+
+                    recommendations.append({
+                        'symbol': symbol,
+                        'weight': weight,
+                        'amount': actual_amount,
+                        'suggested_shares': suggested_shares,
+                        'risk_level': risk_level,
+                        'fundamentals': {
+                            'current_price': current_price
+                        }
+                    })
+
+                except Exception as e:
+                    logger.error(f"Error processing stock {symbol}: {str(e)}")
+                    continue
+
+            return recommendations
+
+        except Exception as e:
+            logger.error(f"Error getting recommendations for {sector}: {str(e)}")
+            return []
+
+    def _generate_recommendation_reason(self, fundamentals: Dict, technicals: Dict, score: float) -> str:
+        """Generate a human-readable reason for the stock recommendation"""
+        reasons = []
+        
+        # Fundamental analysis reasons
+        if fundamentals.get('pe_ratio') and fundamentals['pe_ratio'] < 20:
+            reasons.append("Attractive valuation")
+        if fundamentals.get('dividend_yield', 0) > 2:
+            reasons.append("Strong dividend yield")
+        if fundamentals.get('profit_margin', 0) > 15:
+            reasons.append("High profit margins")
+        
+        # Technical analysis reasons
+        if technicals.get('rsi', 0) < 70 and technicals.get('rsi', 0) > 30:
+            reasons.append("Healthy momentum")
+        if technicals.get('trend_score', 0) > 2:
+            reasons.append("Strong upward trend")
+        
+        # Score-based summary
+        if score >= 80:
+            reasons.append("Excellent overall metrics")
+        elif score >= 60:
+            reasons.append("Strong performance potential")
+        
+        return "; ".join(reasons) if reasons else "Balanced risk-reward profile"
+
+    def optimize_portfolio(self, request_data: Dict) -> Dict:
+        """
+        Generate a stock portfolio based on investment amount and risk appetite.
+        """
+        try:
+            investment_amount = request_data['investment_amount']
+            risk_appetite = request_data['risk_appetite']
+            investment_period = request_data['investment_period']
+
+            # Define sector weights based on risk appetite
+            sector_weights = {
+                'conservative': {
+                    'Technology': 15,
+                    'Healthcare': 20,
+                    'Consumer Staples': 25,
+                    'Utilities': 25,
+                    'Communication Services': 15
+                },
+                'moderate': {
+                    'Technology': 25,
+                    'Healthcare': 20,
+                    'Financial': 20,
+                    'Consumer Discretionary': 20,
+                    'Industrial': 15
+                },
+                'aggressive': {
+                    'Technology': 35,
+                    'Financial': 25,
+                    'Consumer Discretionary': 20,
+                    'Energy': 10,
+                    'Communication Services': 10
+                }
+            }
+
+            selected_sectors = sector_weights[risk_appetite]
+            stock_recommendations = {}
+            total_stocks = 0
+
+            # Get stock recommendations for each sector
+            for sector, weight in selected_sectors.items():
+                sector_amount = (investment_amount * weight) / 100
+                sector_stocks = self.get_stock_recommendations(
+                    sector=sector,
+                    risk_appetite=risk_appetite,
+                    sector_amount=sector_amount,
+                    investment_period=investment_period
+                )
+                
+                if sector_stocks:
+                    stock_recommendations[sector] = sector_stocks
+                    total_stocks += len(sector_stocks)
+
+            # Calculate total actual investment
+            total_investment = sum(
+                sum(stock['amount'] for stock in stocks)
+                for stocks in stock_recommendations.values()
+            )
+
+            return {
+                'portfolio': {
+                    'recommendations': {
+                        'stock_recommendations': stock_recommendations,
+                        'allocation_summary': {
+                            'total_investment': total_investment,
+                            'total_stocks': total_stocks,
+                            'total_sectors': len(stock_recommendations)
+                        }
+                    }
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"Error in portfolio optimization: {str(e)}")
+            raise Exception(f"Failed to optimize portfolio: {str(e)}")
+
+    def _generate_stock_strategy(
+        self,
+        request_data: Dict,
+        stock_recommendations: Dict
+    ) -> str:
+        """Generate personalized stock investment strategy"""
+        
+        strategy_parts = []
+        
+        # Introduction
+        strategy_parts.append(f"Stock Investment Strategy for {request_data['investment_period']} Year Horizon")
+        strategy_parts.append(f"\nRisk Profile: {request_data['risk_appetite'].title()}")
+        
+        # Stock Portfolio
+        if stock_recommendations and any(stocks for stocks in stock_recommendations.values()):
+            strategy_parts.append("\nRecommended Stock Portfolio:")
+            for sector, stocks in stock_recommendations.items():
+                if stocks:  # Only process non-empty sector stocks
+                    strategy_parts.append(f"\n{sector} Sector:")
+                    for stock in stocks:
+                        strategy_parts.append(
+                            f"- {stock['symbol']}: {stock['weight']:.1f}% allocation "
+                            f"(${stock['amount']:,.2f}, {stock['suggested_shares']} shares)"
+                        )
+                        strategy_parts.append(f"  Reason: {stock['recommendation_reason']}")
+            
+            # Calculate max exposure
+            try:
+                max_exposure = max(
+                    stock['weight'] 
+                    for stocks in stock_recommendations.values() 
+                    for stock in stocks
+                )
+            except ValueError:
+                max_exposure = 0
+        else:
+            strategy_parts.append("\nNo specific stock recommendations at this time.")
+            max_exposure = 0
+        
+        # Investment Approach
+        strategy_parts.append("\nInvestment Approach:")
+        if request_data['investment_period'] > 10:
+            strategy_parts.append("- Long-term growth focus with emphasis on quality companies")
+            strategy_parts.append("- Regular dividend reinvestment recommended")
+            strategy_parts.append("- Quarterly portfolio rebalancing suggested")
+        elif request_data['investment_period'] > 5:
+            strategy_parts.append("- Medium-term balanced approach")
+            strategy_parts.append("- Mix of growth and value stocks")
+            strategy_parts.append("- Semi-annual portfolio rebalancing recommended")
+        else:
+            strategy_parts.append("- Short-term focus on stability")
+            strategy_parts.append("- Focus on blue-chip stocks")
+            strategy_parts.append("- More frequent portfolio monitoring advised")
+        
+        # Regular Investment Plan
+        if request_data.get('regular_investment'):
+            strategy_parts.append(f"\nMonthly Investment Plan:")
+            strategy_parts.append(f"- Recommended monthly investment: ${request_data['regular_investment']:,.2f}")
+            strategy_parts.append("- Implement dollar-cost averaging strategy")
+        
+        # Risk Management
+        strategy_parts.append("\nRisk Management:")
+        strategy_parts.append("- Diversification across sectors and companies")
+        strategy_parts.append(f"- Maximum single stock exposure: {max_exposure:.1f}%")
+        strategy_parts.append("- Regular monitoring and rebalancing recommended")
+        
+        return "\n".join(strategy_parts)
+
+    def analyze_sector_performance(self, sectors: List[str], period: str = "1y") -> Dict:
+        """Analyze performance of specified sectors"""
+        sector_performance = {}
+        
+        for sector in sectors:
+            if sector in self.sector_etfs:
+                try:
+                    etf = yf.Ticker(self.sector_etfs[sector])
+                    hist = etf.history(period=period)
+                    
+                    returns = hist['Close'].pct_change()
+                    sector_performance[sector] = {
+                        "annual_return": float(((hist['Close'].iloc[-1] / hist['Close'].iloc[0]) - 1) * 100),
+                        "volatility": float(returns.std() * np.sqrt(252) * 100),
+                        "sharpe_ratio": float(returns.mean() / returns.std() * np.sqrt(252))
+                    }
+                except Exception as e:
+                    logger.error(f"Error analyzing sector {sector}: {str(e)}")
+                    
+        return sector_performance
+
+    def _generate_asset_allocation(self, risk_profile: Dict, request_data: Dict) -> Dict:
+        """Generate high-level asset allocation"""
+        age_factor = min((100 - request_data['age']) / 100, 0.9)
+        stock_allocation = min(
+            risk_profile['max_stock_allocation'],
+            risk_profile['max_stock_allocation'] * age_factor
+        )
+        
+        return {
+            "stocks": stock_allocation,
+            "bonds": 90 - stock_allocation,
+            "cash": 10
+        }
+
+    def _generate_sector_allocation(self, sector_analysis: Dict, risk_profile: Dict, preferred_sectors: List[str]) -> Dict:
+        """Generate sector allocation based on analysis and preferences"""
+        allocation = {}
+        total_weight = 0
+        
+        # Sort sectors by Sharpe ratio
+        sorted_sectors = sorted(
+            sector_analysis.items(),
+            key=lambda x: x[1]['sharpe_ratio'],
+            reverse=True
+        )
+        
+        # Allocate based on performance and preferences
+        for sector, metrics in sorted_sectors:
+            if sector in preferred_sectors:
+                weight = min(risk_profile['max_per_sector'], 30)
+            else:
+                weight = min(risk_profile['max_per_sector'], 15)
+                
+            if total_weight + weight <= 100:
+                allocation[sector] = weight
+                total_weight += weight
+        
+        # Normalize weights to 100%
+        if total_weight > 0:
+            for sector in allocation:
+                allocation[sector] = (allocation[sector] / total_weight) * 100
+                
+        return allocation
+
+# Initialize optimizer
+portfolio_optimizer = PortfolioOptimizer() 

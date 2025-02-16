@@ -200,6 +200,21 @@ class PortfolioAllocation(BaseModel):
     quantity: int
     percentage: float
 
+# Import sentiment analyzer
+import sys
+import os
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent.parent))
+from sentiment_analyzer import StockSentimentAnalyzer
+
+class ComprehensivePortfolioRequest(BaseModel):
+    investment_amount: float = Field(..., ge=1000, description="Amount to invest")
+    risk_appetite: Literal["conservative", "moderate", "aggressive"] = Field(..., description="Risk tolerance level")
+    investment_period: int = Field(..., ge=1, le=30, description="Investment period in years")
+    company_count: int = Field(..., ge=5, le=30, description="Number of companies to include in portfolio")
+    sectors: Optional[List[str]] = Field(default=None, description="Preferred sectors (optional)")
+    esg_focus: Optional[bool] = Field(default=False, description="Consider ESG factors")
+
 @app.get("/")
 async def read_root():
     return {"message": "Welcome to the Financial Product Backend API"}
@@ -665,4 +680,61 @@ async def test_buy_stock(request: TestOrderRequest):
         raise HTTPException(
             status_code=500,
             detail=f"Error placing test order: {str(e)}"
+        )
+
+@app.get("/api/sentiment-analysis")
+async def get_sentiment_analysis(ticker: str):
+    """Get sentiment analysis for a given stock ticker"""
+    try:
+        analyzer = StockSentimentAnalyzer(ticker)
+        result = analyzer.get_news_and_sentiment()
+        
+        if result['status'] == 'success':
+            return {
+                "status": "success",
+                "data": {
+                    "analysis": result['analysis'],
+                    "news": [
+                        {
+                            "title": article['title'],
+                            "source": article['source']['name'],
+                            "url": article.get('url', '')
+                        }
+                        for article in result['news']
+                    ]
+                }
+            }
+        else:
+            raise HTTPException(status_code=500, detail=result['message'])
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/portfolio/comprehensive")
+async def generate_comprehensive_portfolio(request: ComprehensivePortfolioRequest):
+    try:
+        # Log the request
+        logger.info(f"Received portfolio request: {request}")
+        
+        # Generate portfolio using the enhanced portfolio generator
+        result = portfolio_generator.generate_portfolio({
+            'investment_amount': request.investment_amount,
+            'risk_appetite': request.risk_appetite,
+            'investment_period': request.investment_period,
+            'company_count': request.company_count
+        })
+        
+        # Log success
+        logger.info("Portfolio generated successfully")
+        
+        return {
+            'status': 'success',
+            'portfolio': result['portfolio']
+        }
+        
+    except Exception as e:
+        logger.error(f"Error generating portfolio: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate portfolio: {str(e)}"
         ) 
