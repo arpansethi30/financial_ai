@@ -162,10 +162,25 @@ class SentimentRequest(BaseModel):
         }
     }
 
+class OrderResponse(BaseModel):
+    symbol: str
+    quantity: int
+    order_id: Optional[str] = None
+    status: Optional[str] = None
+    error: Optional[str] = None
+    created_at: Optional[str] = None
+    filled_qty: Optional[float] = None
+    filled_avg_price: Optional[float] = None
+
+class TradingResponseData(BaseModel):
+    orders: List[OrderResponse]
+    total_orders: int
+    successful_orders: int
+
 class TradingResponse(BaseModel):
     success: bool
     message: str
-    data: Optional[Dict] = None
+    data: Optional[TradingResponseData] = None
 
 class TestOrderRequest(BaseModel):
     symbol: str = Field(..., description="Stock symbol to buy (e.g., AAPL)")
@@ -179,6 +194,11 @@ class TestOrderRequest(BaseModel):
             }
         }
     }
+
+class PortfolioAllocation(BaseModel):
+    symbol: str
+    quantity: int
+    percentage: float
 
 @app.get("/")
 async def read_root():
@@ -550,15 +570,62 @@ async def get_positions():
         )
 
 @app.post("/trading/execute-portfolio")
-async def execute_portfolio(portfolio_allocation: List[Dict]):
+async def execute_portfolio(portfolio_allocation: List[PortfolioAllocation]):
     """Execute trades based on portfolio allocation"""
     try:
-        orders = trading_service.create_portfolio_orders(portfolio_allocation)
-        return TradingResponse(
-            success=True,
-            message="Portfolio orders executed successfully",
-            data=orders
+        # Get account information first to verify we can trade
+        account = trading_service.get_account()
+        buying_power = float(account.buying_power)
+        
+        # Calculate total investment needed
+        total_investment = sum(
+            stock.quantity * float(yf.Ticker(stock.symbol).info.get('regularMarketPrice', 0))
+            for stock in portfolio_allocation
         )
+        
+        if total_investment > buying_power:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Insufficient buying power. Need ${total_investment:,.2f} but only have ${buying_power:,.2f} available."
+            )
+        
+        # Convert to list of dicts for trading service
+        allocation_dicts = [allocation.model_dump() for allocation in portfolio_allocation]
+        
+        # Execute trades
+        try:
+            orders_result = trading_service.create_portfolio_orders(allocation_dicts)
+            
+            # Convert the orders to proper format
+            orders_data = TradingResponseData(
+                orders=[OrderResponse(**order) for order in orders_result["orders"]],
+                total_orders=orders_result["total_orders"],
+                successful_orders=orders_result["successful_orders"]
+            )
+            
+            # Create appropriate message based on success rate
+            if orders_data.successful_orders == orders_data.total_orders:
+                message = "All portfolio orders executed successfully"
+            elif orders_data.successful_orders == 0:
+                message = "Failed to execute any portfolio orders"
+            else:
+                message = f"Partially executed portfolio orders ({orders_data.successful_orders}/{orders_data.total_orders} successful)"
+            
+            return TradingResponse(
+                success=orders_data.successful_orders > 0,
+                message=message,
+                data=orders_data
+            ).model_dump()  # Convert to dict before returning
+            
+        except Exception as e:
+            logger.error(f"Error executing trades: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error executing trades: {str(e)}"
+            )
+            
+    except HTTPException as he:
+        raise he
     except Exception as e:
         raise HTTPException(
             status_code=500,

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, Fragment } from 'react';
 import { LineChart, PieChart, ArrowRight, Info } from 'lucide-react';
 
 interface PortfolioRecommendation {
@@ -35,6 +35,12 @@ export default function PortfolioPage() {
   const [loading, setLoading] = useState(false);
   const [recommendation, setRecommendation] = useState<PortfolioRecommendation | null>(null);
   const [error, setError] = useState('');
+  const [tradingStatus, setTradingStatus] = useState<{
+    isTrading: boolean;
+    success?: boolean;
+    message?: string;
+    orders?: any[];
+  }>();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,6 +80,51 @@ export default function PortfolioPage() {
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const executePortfolio = async () => {
+    if (!recommendation) return;
+    
+    setTradingStatus({ isTrading: true });
+    try {
+      // Prepare portfolio allocation data
+      const portfolioAllocation = Object.entries(recommendation.portfolio.recommendations.stock_recommendations)
+        .flatMap(([sector, stocks]) =>
+          stocks.map(stock => ({
+            symbol: stock.symbol,
+            quantity: stock.suggested_shares,
+            percentage: stock.weight
+          }))
+        );
+
+      // Execute trades
+      const response = await fetch('http://localhost:8000/trading/execute-portfolio', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(portfolioAllocation),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to execute trades');
+      }
+
+      const data = await response.json();
+      setTradingStatus({
+        isTrading: false,
+        success: true,
+        message: `${data.message} (${data.data.total_orders} orders placed)`,
+        orders: data.data.orders
+      });
+    } catch (err) {
+      setTradingStatus({
+        isTrading: false,
+        success: false,
+        message: err instanceof Error ? err.message : 'Failed to execute trades'
+      });
+    }
   };
 
   return (
@@ -244,12 +295,12 @@ export default function PortfolioPage() {
                     </thead>
                     <tbody className="divide-y divide-gray-200">
                       {Object.entries(recommendation.portfolio.recommendations.stock_recommendations).map(([sector, stocks]) => (
-                        <>
+                        <Fragment key={sector}>
                           <tr className="bg-gray-50">
                             <td colSpan={5} className="px-6 py-3 text-sm font-semibold text-gray-700">{sector}</td>
                           </tr>
                           {stocks.map((stock, index) => (
-                            <tr key={`${sector}-${index}`} className="hover:bg-gray-50 transition-colors">
+                            <tr key={`${sector}-${stock.symbol}`} className="hover:bg-gray-50 transition-colors">
                               <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{stock.symbol}</td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{(stock.weight).toFixed(1)}%</td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${stock.amount.toLocaleString()}</td>
@@ -264,7 +315,7 @@ export default function PortfolioPage() {
                               </td>
                             </tr>
                           ))}
-                        </>
+                        </Fragment>
                       ))}
                     </tbody>
                   </table>
@@ -332,6 +383,51 @@ export default function PortfolioPage() {
                     </div>
                   </div>
                 )}
+
+                {/* Add Trading Button */}
+                <div className="mt-8 border-t border-gray-200 pt-8">
+                  <div className="flex flex-col items-center gap-4">
+                    <button
+                      onClick={executePortfolio}
+                      disabled={tradingStatus?.isTrading}
+                      className="px-8 py-4 text-base font-medium rounded-xl 
+                                bg-green-600 text-white
+                                hover:bg-green-700 transition-all duration-200
+                                shadow-lg disabled:bg-gray-300 disabled:cursor-not-allowed
+                                flex items-center justify-center min-w-[200px]"
+                    >
+                      {tradingStatus?.isTrading ? 'Executing Trades...' : 'Trade Portfolio'}
+                    </button>
+                    
+                    {tradingStatus && !tradingStatus.isTrading && (
+                      <div className={`text-center p-4 rounded-xl w-full ${
+                        tradingStatus.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+                      }`}>
+                        <p className="font-medium mb-2">{tradingStatus.message}</p>
+                        {tradingStatus.success && tradingStatus.orders && (
+                          <div className="mt-4 text-sm">
+                            <p className="font-semibold mb-2">Order Summary:</p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                              {tradingStatus.orders.map((order, index) => (
+                                <div key={index} className="bg-white p-4 rounded-lg border border-green-200">
+                                  <p className="font-medium">{order.symbol}</p>
+                                  <p className="text-sm text-gray-600">Quantity: {order.quantity}</p>
+                                  <p className="text-sm text-gray-600">Status: {order.status}</p>
+                                  {order.order_id && (
+                                    <p className="text-sm text-gray-600">Order ID: {order.order_id}</p>
+                                  )}
+                                  {order.error && (
+                                    <p className="text-sm text-red-600">Error: {order.error}</p>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
           </div>
