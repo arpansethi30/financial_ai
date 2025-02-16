@@ -16,4 +16,4 @@ torchvision
 torchaudio
 alpaca-py>=0.8.0
 scikit-learn>=1.0.2
-TA-Lib>=0.4.24 
+#TA-Lib>=0.4.24 
