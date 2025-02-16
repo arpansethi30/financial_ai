@@ -134,13 +134,15 @@ class PortfolioRequest(BaseModel):
     investment_amount: float = Field(..., ge=1000, description="Amount to invest")
     risk_appetite: Literal["conservative", "moderate", "aggressive"] = Field(..., description="Risk tolerance level")
     investment_period: int = Field(..., ge=1, le=30, description="Investment period in years")
+    company_count: int = Field(..., ge=5, le=30, description="Number of companies to include in portfolio")
 
     model_config = {
         "json_schema_extra": {
             "example": {
                 "investment_amount": 10000,
                 "risk_appetite": "moderate",
-                "investment_period": 5
+                "investment_period": 5,
+                "company_count": 10
             }
         }
     }

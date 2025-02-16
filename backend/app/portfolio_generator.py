@@ -52,16 +52,16 @@ class PortfolioGenerator:
             }
         }
         
-        # Sector tickers
+        # Extended sector tickers with more options
         self.sector_tickers = {
-            'Technology': ['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'AMD'],
-            'Healthcare': ['JNJ', 'UNH', 'PFE', 'ABT', 'TMO'],
-            'Finance': ['JPM', 'BAC', 'V', 'MA', 'GS'],
-            'Consumer Staples': ['PG', 'KO', 'PEP', 'WMT', 'COST'],
-            'Consumer Discretionary': ['AMZN', 'TSLA', 'HD', 'MCD', 'NKE'],
-            'Industrial': ['HON', 'UPS', 'CAT', 'DE', 'BA'],
-            'Energy': ['XOM', 'CVX', 'COP', 'SLB', 'EOG'],
-            'Utilities': ['NEE', 'DUK', 'SO', 'D', 'AEP']
+            'Technology': ['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'AMD', 'ADBE', 'CRM', 'INTC', 'CSCO', 'ORCL'],
+            'Healthcare': ['JNJ', 'UNH', 'PFE', 'ABT', 'TMO', 'MRK', 'ABBV', 'DHR', 'BMY', 'AMGN'],
+            'Finance': ['JPM', 'BAC', 'V', 'MA', 'GS', 'MS', 'BLK', 'C', 'AXP', 'SPGI'],
+            'Consumer Staples': ['PG', 'KO', 'PEP', 'WMT', 'COST', 'PM', 'TGT', 'EL', 'CL', 'KMB'],
+            'Consumer Discretionary': ['AMZN', 'TSLA', 'HD', 'MCD', 'NKE', 'SBUX', 'TJX', 'LOW', 'BKNG', 'MAR'],
+            'Industrial': ['HON', 'UPS', 'CAT', 'DE', 'BA', 'MMM', 'GE', 'LMT', 'RTX', 'UNP'],
+            'Energy': ['XOM', 'CVX', 'COP', 'SLB', 'EOG', 'PSX', 'PXD', 'VLO', 'MPC', 'OXY'],
+            'Utilities': ['NEE', 'DUK', 'SO', 'D', 'AEP', 'SRE', 'EXC', 'XEL', 'WEC', 'ES']
         }
 
     def analyze_fundamentals(self, ticker: str) -> Dict:
@@ -170,54 +170,109 @@ class PortfolioGenerator:
         return max(min(sentiment_score, 1), -1)
 
     def generate_portfolio(self, request_data: Dict) -> Dict:
-        """Generate a portfolio based on risk appetite and investment amount"""
+        """Generate a portfolio based on risk appetite, investment amount, and company count"""
         try:
             risk_appetite = request_data['risk_appetite']
-            investment_amount = request_data['investment_amount']
+            investment_amount = float(request_data['investment_amount'])
             investment_period = request_data.get('investment_period', 5)
+            company_count = request_data.get('company_count', 10)
             
             sector_weights = self.sector_weights[risk_appetite]
             stock_recommendations = {}
             total_investment = 0
             total_stocks = 0
             
-            for sector, weight in sector_weights.items():
-                sector_amount = investment_amount * weight
-                sector_stocks = []
+            # Calculate how many companies to pick from each sector
+            total_sectors = len(sector_weights)
+            base_companies_per_sector = max(1, company_count // total_sectors)
+            extra_companies = company_count % total_sectors
+            
+            # Sort sectors by weight to allocate extra companies to highest weight sectors
+            sorted_sectors = sorted(sector_weights.items(), key=lambda x: x[1], reverse=True)
+            
+            # First pass: collect all potential stocks
+            all_selected_stocks = []
+            for sector, weight in sorted_sectors:
+                # Determine number of companies for this sector
+                sector_company_count = base_companies_per_sector
+                if extra_companies > 0:
+                    sector_company_count += 1
+                    extra_companies -= 1
                 
+                # Get all available stocks for this sector
+                available_stocks = []
                 for ticker in self.sector_tickers[sector]:
                     fundamentals = self.analyze_fundamentals(ticker)
-                    if not fundamentals:
+                    if not fundamentals or fundamentals['current_price'] <= 0:
                         continue
-                    
-                    current_price = fundamentals['current_price']
-                    if current_price <= 0:
+                        
+                    technicals = self.analyze_technicals(ticker)
+                    if not technicals:
                         continue
-                    
-                    # Calculate shares and amount
-                    suggested_shares = max(1, int((sector_amount * 0.2) / current_price))  # 20% of sector amount per stock
-                    actual_amount = suggested_shares * current_price
-                    
-                    # Determine risk level based on sector and position
-                    risk_level = 'High' if sector in ['Technology', 'Energy'] else \
-                                'Medium' if sector in ['Finance', 'Consumer Discretionary'] else 'Low'
-                    
-                    sector_stocks.append({
-                        'symbol': ticker,
-                        'weight': 20,  # Equal weight within sector
-                        'amount': actual_amount,
-                        'suggested_shares': suggested_shares,
-                        'risk_level': risk_level,
-                        'fundamentals': fundamentals
+                        
+                    available_stocks.append({
+                        'ticker': ticker,
+                        'sector': sector,
+                        'fundamentals': fundamentals,
+                        'technical_score': technicals['Overall_Score']
                     })
-                    
-                    total_investment += actual_amount
-                    total_stocks += 1
                 
-                if sector_stocks:
-                    stock_recommendations[sector] = sector_stocks
+                # Sort stocks by technical score and take the top N for this sector
+                available_stocks.sort(key=lambda x: x['technical_score'], reverse=True)
+                all_selected_stocks.extend(available_stocks[:sector_company_count])
             
-            # Create the response structure that matches frontend expectations
+            # Second pass: allocate investment amounts while respecting the total
+            total_selected = len(all_selected_stocks)
+            if total_selected == 0:
+                raise ValueError("No suitable stocks found")
+            
+            # Calculate initial allocations based on sector weights
+            for stock in all_selected_stocks:
+                sector = stock['sector']
+                sector_weight = sector_weights[sector]
+                stock['target_weight'] = sector_weight / sum(1 for s in all_selected_stocks if s['sector'] == sector)
+            
+            # Normalize weights to sum to 1
+            total_weight = sum(stock['target_weight'] for stock in all_selected_stocks)
+            for stock in all_selected_stocks:
+                stock['target_weight'] /= total_weight
+            
+            # Calculate share quantities and actual amounts
+            for stock in all_selected_stocks:
+                target_amount = investment_amount * stock['target_weight']
+                current_price = stock['fundamentals']['current_price']
+                suggested_shares = max(1, int(target_amount / current_price))
+                actual_amount = suggested_shares * current_price
+                
+                sector = stock['sector']
+                if sector not in stock_recommendations:
+                    stock_recommendations[sector] = []
+                
+                # Determine risk level based on technical score and sector
+                risk_level = self._determine_risk_level(stock['technical_score'], sector, risk_appetite)
+                
+                stock_recommendations[sector].append({
+                    'symbol': stock['ticker'],
+                    'weight': (actual_amount / investment_amount) * 100,
+                    'amount': actual_amount,
+                    'suggested_shares': suggested_shares,
+                    'risk_level': risk_level,
+                    'fundamentals': stock['fundamentals']
+                })
+                
+                total_investment += actual_amount
+                total_stocks += 1
+            
+            # Generate detailed analysis
+            analysis = self._generate_detailed_analysis(
+                risk_appetite,
+                investment_period,
+                total_investment,
+                total_stocks,
+                stock_recommendations,
+                sector_weights
+            )
+            
             return {
                 'portfolio': {
                     'recommendations': {
@@ -229,8 +284,64 @@ class PortfolioGenerator:
                         }
                     }
                 },
-                'analysis': f"""Investment Strategy Analysis:
-                
+                'analysis': analysis
+            }
+            
+        except Exception as e:
+            logger.error(f"Error generating portfolio: {str(e)}")
+            raise ValueError(f"Failed to generate portfolio: {str(e)}")
+
+    def _determine_risk_level(self, technical_score: float, sector: str, risk_appetite: str) -> str:
+        """Determine risk level based on technical score, sector, and risk appetite"""
+        high_risk_sectors = ['Technology', 'Energy']
+        medium_risk_sectors = ['Finance', 'Consumer Discretionary', 'Industrial']
+        
+        # Base risk on technical score
+        if technical_score >= 75:
+            base_risk = 'low'
+        elif technical_score >= 50:
+            base_risk = 'medium'
+        else:
+            base_risk = 'high'
+            
+        # Adjust for sector
+        if sector in high_risk_sectors:
+            base_risk = 'high' if base_risk != 'low' else 'medium'
+        elif sector in medium_risk_sectors:
+            base_risk = 'medium' if base_risk == 'low' else base_risk
+            
+        # Adjust for risk appetite
+        if risk_appetite == 'aggressive':
+            return base_risk
+        elif risk_appetite == 'moderate':
+            return 'medium' if base_risk == 'high' else base_risk
+        else:  # conservative
+            return 'medium' if base_risk == 'high' else 'low'
+
+    def _generate_detailed_analysis(self, risk_appetite: str, investment_period: int,
+                                  total_investment: float, total_stocks: int,
+                                  stock_recommendations: Dict, sector_weights: Dict) -> str:
+        """Generate detailed portfolio analysis"""
+        sector_allocations = []
+        for sector, stocks in stock_recommendations.items():
+            sector_total = sum(stock['amount'] for stock in stocks)
+            sector_weight = (sector_total / total_investment) * 100
+            sector_allocations.append(f"- {sector}: {sector_weight:.1f}% ({len(stocks)} stocks)")
+        
+        risk_descriptions = {
+            'conservative': "focuses on stable, established companies with strong fundamentals and lower volatility",
+            'moderate': "balances growth potential with stability through a mix of established and growing companies",
+            'aggressive': "emphasizes growth potential through technology and emerging market leaders"
+        }
+        
+        rebalancing_frequency = {
+            'conservative': 'annually',
+            'moderate': 'semi-annually',
+            'aggressive': 'quarterly'
+        }
+        
+        analysis = f"""Investment Strategy Analysis:
+
 Risk Profile: {risk_appetite.title()}
 Investment Period: {investment_period} years
 Total Investment: ${total_investment:,.2f}
@@ -238,20 +349,30 @@ Total Stocks: {total_stocks}
 Total Sectors: {len(stock_recommendations)}
 
 Portfolio Allocation:
-{chr(10).join([f'- {sector}: {weight*100:.1f}%' for sector, weight in sector_weights.items()])}
+{chr(10).join(sector_allocations)}
 
-This {risk_appetite} portfolio is designed for a {investment_period}-year investment horizon, with diversification across {len(stock_recommendations)} major sectors. The allocation reflects a {risk_appetite} risk tolerance, with a focus on {'growth and technology sectors' if risk_appetite == 'aggressive' else 'balanced sector exposure' if risk_appetite == 'moderate' else 'stable, dividend-paying sectors'}.
+Strategy Overview:
+This {risk_appetite} portfolio {risk_descriptions[risk_appetite]}, designed for a {investment_period}-year investment horizon. The portfolio is diversified across {len(stock_recommendations)} major sectors, with each stock selected based on technical analysis, fundamental strength, and market position.
+
+Key Features:
+- Sector diversification to manage risk and capture growth opportunities
+- Stock selection based on technical and fundamental analysis
+- Risk-adjusted position sizing within sectors
+- Focus on liquid, established companies
 
 Rebalancing Recommendation:
-- Review and rebalance the portfolio {'quarterly' if risk_appetite == 'aggressive' else 'semi-annually' if risk_appetite == 'moderate' else 'annually'}.
-- Maintain sector weights within 5% of target allocation.
-- Monitor individual positions for any significant changes in fundamentals.
+- Review and rebalance the portfolio {rebalancing_frequency[risk_appetite]}
+- Maintain sector weights within 5% of target allocation
+- Monitor individual positions for changes in fundamentals or technical indicators
+- Consider tax implications when rebalancing
+
+Risk Management:
+- Position sizes are adjusted based on individual stock risk levels
+- Sector weights aligned with {risk_appetite} risk profile
+- Regular monitoring of technical indicators and fundamentals
+- Stop-loss recommendations: {'15-20%' if risk_appetite == 'aggressive' else '10-15%' if risk_appetite == 'moderate' else '5-10%'} below purchase price
 """
-            }
-            
-        except Exception as e:
-            logger.error(f"Error generating portfolio: {str(e)}")
-            raise e
+        return analysis
 
 # Initialize generator
 portfolio_generator = PortfolioGenerator() 
