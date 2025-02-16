@@ -1,65 +1,71 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
+import Link from "next/link";
+import Footer from "@/components/Footer";
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Financial AI | Intelligent Investment Analysis",
-  description: "Advanced AI-powered financial analysis and investment insights",
+  title: "Financial AI",
+  description: "AI-powered financial analysis and portfolio management",
 };
 
 export default function RootLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   return (
-    <html lang="en" className="h-full">
-      <body className={`${inter.className} h-full antialiased bg-white`}>
-        <nav className="fixed w-full z-50 bg-white/90 backdrop-blur-xl border-b border-gray-200">
-          <div className="max-w-[1400px] mx-auto">
-            <div className="flex h-16 items-center justify-between px-6 lg:px-8">
-              <div className="flex items-center gap-10">
-                <a href="/" className="text-lg font-semibold text-gray-900">
+    <html lang="en">
+      <body className={`${inter.className} min-h-screen flex flex-col`}>
+        {/* Navigation */}
+        <nav className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-md border-b border-gray-200">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="flex h-16 justify-between items-center">
+              <div className="flex items-center">
+                <Link href="/" className="text-xl font-bold text-gray-900">
                   Financial AI
-                </a>
-                <div className="hidden md:flex items-center gap-6">
-                  <a href="/stock-analysis" 
-                     className="text-[15px] font-medium text-gray-600
-                              hover:text-gray-900 transition-colors duration-200">
-                    Analysis
-                  </a>
-                  <a href="/portfolio" 
-                     className="text-[15px] font-medium text-gray-600
-                              hover:text-gray-900 transition-colors duration-200">
-                    Portfolio
-                  </a>
-                  <a href="/sentiment" 
-                     className="text-[15px] font-medium text-gray-600
-                              hover:text-gray-900 transition-colors duration-200">
-                    Sentiment
-                  </a>
-                </div>
+                </Link>
               </div>
-              <div className="flex items-center gap-6">
-                <a href="/sign-in" 
-                   className="text-[15px] font-medium text-gray-600
-                            hover:text-gray-900 transition-colors duration-200">
+              
+              <div className="hidden md:flex md:items-center md:space-x-8">
+                <Link href="/analysis" className="text-gray-600 hover:text-gray-900">
+                  Analysis
+                </Link>
+                <Link href="/portfolio" className="text-gray-600 hover:text-gray-900">
+                  Portfolio
+                </Link>
+                <Link href="/sentiment" className="text-gray-600 hover:text-gray-900">
+                  Sentiment
+                </Link>
+              </div>
+
+              <div className="flex items-center space-x-4">
+                <Link
+                  href="/sign-in"
+                  className="text-gray-600 hover:text-gray-900"
+                >
                   Sign In
-                </a>
-                <a href="/get-started" 
-                   className="px-4 py-2 text-[15px] font-medium text-white rounded-full
-                            bg-gray-900 hover:bg-gray-800 transition-all duration-200">
+                </Link>
+                <Link
+                  href="/get-started"
+                  className="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-xl text-white bg-gray-900 hover:bg-gray-800"
+                >
                   Get Started
-                </a>
+                </Link>
               </div>
             </div>
           </div>
         </nav>
-        <main>
+
+        {/* Main Content */}
+        <div className="pt-16 flex-grow">
           {children}
-        </main>
+        </div>
+
+        {/* Footer */}
+        <Footer />
       </body>
     </html>
   );

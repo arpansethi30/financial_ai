@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { LineChart, PieChart, ArrowRight } from 'lucide-react';
+import { LineChart, PieChart, ArrowRight, Info } from 'lucide-react';
 
 interface PortfolioRecommendation {
   portfolio: {
@@ -220,6 +220,16 @@ export default function PortfolioPage() {
                     </p>
                   </div>
                 </div>
+
+                <div className="mb-8">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Info className="w-5 h-5 text-gray-600" />
+                    <p className="text-sm text-gray-600">
+                      Portfolio diversified across {recommendation.portfolio.recommendations.allocation_summary.total_sectors} sectors 
+                      with {recommendation.portfolio.recommendations.allocation_summary.total_stocks} stocks
+                    </p>
+                  </div>
+                </div>
                 
                 <div className="overflow-x-auto">
                   <table className="min-w-full divide-y divide-gray-200">
@@ -241,10 +251,17 @@ export default function PortfolioPage() {
                           {stocks.map((stock, index) => (
                             <tr key={`${sector}-${index}`} className="hover:bg-gray-50 transition-colors">
                               <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{stock.symbol}</td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{(stock.weight * 100).toFixed(2)}%</td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{(stock.weight).toFixed(1)}%</td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${stock.amount.toLocaleString()}</td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{stock.suggested_shares}</td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{stock.risk_level}</td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                                  ${stock.risk_level.toLowerCase() === 'high' ? 'bg-red-100 text-red-800' : 
+                                    stock.risk_level.toLowerCase() === 'medium' ? 'bg-yellow-100 text-yellow-800' : 
+                                    'bg-green-100 text-green-800'}`}>
+                                  {stock.risk_level}
+                                </span>
+                              </td>
                             </tr>
                           ))}
                         </>
@@ -254,9 +271,65 @@ export default function PortfolioPage() {
                 </div>
 
                 {recommendation.analysis && (
-                  <div className="mt-8 p-6 bg-gray-50 rounded-xl">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Analysis</h3>
-                    <p className="text-gray-700 whitespace-pre-line">{recommendation.analysis}</p>
+                  <div className="mt-12">
+                    <h3 className="text-2xl font-bold text-gray-900 mb-8">Portfolio Analysis</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {/* Overall Portfolio Strategy */}
+                      <div className="bg-white rounded-2xl border border-gray-200 p-6 hover:shadow-lg transition-all">
+                        <div className="flex items-center gap-3 mb-4">
+                          <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center">
+                            <PieChart className="w-5 h-5 text-blue-600" />
+                          </div>
+                          <h4 className="text-lg font-semibold text-gray-900">1. Overall Portfolio Strategy</h4>
+                        </div>
+                        <p className="text-gray-600 leading-relaxed">
+                          {recommendation.analysis.split('**1. Overall Portfolio Strategy**')[1]?.split('**')[0]?.trim()}
+                        </p>
+                      </div>
+
+                      {/* Risk Assessment */}
+                      <div className="bg-white rounded-2xl border border-gray-200 p-6 hover:shadow-lg transition-all">
+                        <div className="flex items-center gap-3 mb-4">
+                          <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center">
+                            <LineChart className="w-5 h-5 text-red-600" />
+                          </div>
+                          <h4 className="text-lg font-semibold text-gray-900">2. Risk Assessment</h4>
+                        </div>
+                        <p className="text-gray-600 leading-relaxed">
+                          {recommendation.analysis.split('**2. Risk Assessment**')[1]?.split('**')[0]?.trim()}
+                        </p>
+                      </div>
+
+                      {/* Investment Timeline Strategy */}
+                      <div className="bg-white rounded-2xl border border-gray-200 p-6 hover:shadow-lg transition-all">
+                        <div className="flex items-center gap-3 mb-4">
+                          <div className="w-10 h-10 rounded-full bg-green-50 flex items-center justify-center">
+                            <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                            </svg>
+                          </div>
+                          <h4 className="text-lg font-semibold text-gray-900">3. Investment Timeline Strategy</h4>
+                        </div>
+                        <p className="text-gray-600 leading-relaxed">
+                          {recommendation.analysis.split('**3. Investment Timeline Strategy**')[1]?.split('**')[0]?.trim()}
+                        </p>
+                      </div>
+
+                      {/* Rebalancing Recommendations */}
+                      <div className="bg-white rounded-2xl border border-gray-200 p-6 hover:shadow-lg transition-all">
+                        <div className="flex items-center gap-3 mb-4">
+                          <div className="w-10 h-10 rounded-full bg-purple-50 flex items-center justify-center">
+                            <svg className="w-5 h-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                          </div>
+                          <h4 className="text-lg font-semibold text-gray-900">4. Rebalancing Recommendations</h4>
+                        </div>
+                        <p className="text-gray-600 leading-relaxed">
+                          {recommendation.analysis.split('**4. Rebalancing Recommendations**')[1]?.split('**')[0]?.trim()}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
