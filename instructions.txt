@@ -1,0 +1,36 @@
+We are building a **Financial AI Agent** for a hackathon.  Remember it needs to be an AI Agent.
+The agent will:  
+✅ Analyze financial data  
+✅ Generate insights  
+✅ Make investment recommendations  
+✅ Perform **sentiment analysis** using news newsapi & social media  
+✅ Make a portofolio using ai for investment portfolios based on **age, income, and risk appetite**  and how long they plan to invest for. 
+
+### **Tech Stack & Required Integrations**:
+- **PyTorch, yFinance, OpenBB** (Financial Data & Modeling)  
+- **Google Gemini** (Advanced AI Model)  
+- **LlamaIndex** (Data Retrieval & Augmentation)  
+
+I have created a test_code.py whgich is a streamlit app but we don't want to amke streamlit app we need to make a fastapi app and a nextjs app. Just see how we are implementing int that to craete our AI Agent.
+
+### **Step 1: Build Minimal Version**
+Implement **basic features first** using:
+- **FastAPI backend** to handle AI processing and the next app we craeted name agent which is our front end app.
+- Use **Gemini for insights** and **LlamaIndex for retrieval**
+
+### **Step 2: Expand Features with Hackathon Sponsor Tools**
+Once the minimal version works, integrate:
+- **Stytch** → Authentication  
+- **AgentQL** → Multi-step reasoning and web scraping  
+- **ApertureDB** → Storing financial datasets  this is very improtnat to use and in a godo way bvecause they ahve great prizes for the hackthon winners.
+- **Deep Lake** → Large-scale data management  
+- **HappyRobot** → Automating portfolio monitoring  and send alerts to the user based on stco prices and also sentimental analysis 
+- **Agno** → Personalization for different users  
+- **ZenML** → ML pipeline management  
+
+### **Task Breakdown for Cursor AI**
+1️⃣ First, implement a basic front end next js app wihich anme is agent folder and backend  using LLamaindex,newsapi OpenBB, yFinance, and Gemini.  
+3️⃣ Finally, integrate sponsor tools to improve depth & automation.  
+
+
+in future I want to add paper trading using somehting free api like alpaca.
