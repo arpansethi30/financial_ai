@@ -173,9 +173,9 @@ class PortfolioGenerator:
         """Generate a portfolio based on risk appetite, investment amount, and company count"""
         try:
             risk_appetite = request_data['risk_appetite']
-            investment_amount = float(request_data['investment_amount'])
+            investment_amount = request_data['investment_amount']
             investment_period = request_data.get('investment_period', 5)
-            company_count = request_data.get('company_count', 10)
+            company_count = request_data.get('company_count', 10)  # Get desired company count
             
             sector_weights = self.sector_weights[risk_appetite]
             stock_recommendations = {}
@@ -184,15 +184,16 @@ class PortfolioGenerator:
             
             # Calculate how many companies to pick from each sector
             total_sectors = len(sector_weights)
-            base_companies_per_sector = max(1, company_count // total_sectors)
+            base_companies_per_sector = company_count // total_sectors
             extra_companies = company_count % total_sectors
             
             # Sort sectors by weight to allocate extra companies to highest weight sectors
             sorted_sectors = sorted(sector_weights.items(), key=lambda x: x[1], reverse=True)
             
-            # First pass: collect all potential stocks
-            all_selected_stocks = []
             for sector, weight in sorted_sectors:
+                sector_amount = investment_amount * weight
+                sector_stocks = []
+                
                 # Determine number of companies for this sector
                 sector_company_count = base_companies_per_sector
                 if extra_companies > 0:
@@ -212,56 +213,39 @@ class PortfolioGenerator:
                         
                     available_stocks.append({
                         'ticker': ticker,
-                        'sector': sector,
                         'fundamentals': fundamentals,
                         'technical_score': technicals['Overall_Score']
                     })
                 
                 # Sort stocks by technical score and take the top N for this sector
                 available_stocks.sort(key=lambda x: x['technical_score'], reverse=True)
-                all_selected_stocks.extend(available_stocks[:sector_company_count])
-            
-            # Second pass: allocate investment amounts while respecting the total
-            total_selected = len(all_selected_stocks)
-            if total_selected == 0:
-                raise ValueError("No suitable stocks found")
-            
-            # Calculate initial allocations based on sector weights
-            for stock in all_selected_stocks:
-                sector = stock['sector']
-                sector_weight = sector_weights[sector]
-                stock['target_weight'] = sector_weight / sum(1 for s in all_selected_stocks if s['sector'] == sector)
-            
-            # Normalize weights to sum to 1
-            total_weight = sum(stock['target_weight'] for stock in all_selected_stocks)
-            for stock in all_selected_stocks:
-                stock['target_weight'] /= total_weight
-            
-            # Calculate share quantities and actual amounts
-            for stock in all_selected_stocks:
-                target_amount = investment_amount * stock['target_weight']
-                current_price = stock['fundamentals']['current_price']
-                suggested_shares = max(1, int(target_amount / current_price))
-                actual_amount = suggested_shares * current_price
+                selected_stocks = available_stocks[:sector_company_count]
                 
-                sector = stock['sector']
-                if sector not in stock_recommendations:
-                    stock_recommendations[sector] = []
+                # Calculate per-stock allocation for this sector
+                per_stock_amount = sector_amount / len(selected_stocks)
                 
-                # Determine risk level based on technical score and sector
-                risk_level = self._determine_risk_level(stock['technical_score'], sector, risk_appetite)
+                for stock in selected_stocks:
+                    current_price = stock['fundamentals']['current_price']
+                    suggested_shares = max(1, int(per_stock_amount / current_price))
+                    actual_amount = suggested_shares * current_price
+                    
+                    # Determine risk level based on technical score and sector
+                    risk_level = self._determine_risk_level(stock['technical_score'], sector, risk_appetite)
+                    
+                    sector_stocks.append({
+                        'symbol': stock['ticker'],
+                        'weight': (actual_amount / investment_amount) * 100,  # Calculate actual weight
+                        'amount': actual_amount,
+                        'suggested_shares': suggested_shares,
+                        'risk_level': risk_level,
+                        'fundamentals': stock['fundamentals']
+                    })
+                    
+                    total_investment += actual_amount
+                    total_stocks += 1
                 
-                stock_recommendations[sector].append({
-                    'symbol': stock['ticker'],
-                    'weight': (actual_amount / investment_amount) * 100,
-                    'amount': actual_amount,
-                    'suggested_shares': suggested_shares,
-                    'risk_level': risk_level,
-                    'fundamentals': stock['fundamentals']
-                })
-                
-                total_investment += actual_amount
-                total_stocks += 1
+                if sector_stocks:
+                    stock_recommendations[sector] = sector_stocks
             
             # Generate detailed analysis
             analysis = self._generate_detailed_analysis(
@@ -286,10 +270,9 @@ class PortfolioGenerator:
                 },
                 'analysis': analysis
             }
-            
         except Exception as e:
             logger.error(f"Error generating portfolio: {str(e)}")
-            raise ValueError(f"Failed to generate portfolio: {str(e)}")
+            raise
 
     def _determine_risk_level(self, technical_score: float, sector: str, risk_appetite: str) -> str:
         """Determine risk level based on technical score, sector, and risk appetite"""
