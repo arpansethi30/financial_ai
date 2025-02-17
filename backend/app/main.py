@@ -12,10 +12,10 @@ from typing import List, Optional, Dict, Literal
 import time
 from functools import wraps
 import re
-from app.trading import trading_service
-from app.portfolio_optimizer import portfolio_optimizer
+from trading import trading_service
+from portfolio_optimizer import portfolio_optimizer
 import logging
-from app.portfolio_generator import portfolio_generator  # Import the new portfolio generator
+from portfolio_generator import portfolio_generator, PortfolioGenerator
 
 # Configure logging
 logging.basicConfig(
@@ -34,6 +34,8 @@ app = FastAPI(title="Financial AI Agent API")
 origins = [
     "http://localhost:3000",    # Next.js development server
     "http://127.0.0.1:3000",
+    "http://localhost:3001",    # Next.js alternative port
+    "http://127.0.0.1:3001",
     "http://localhost:8000",    # Alternative port
     "http://127.0.0.1:8000",
     "http://localhost:8001",    # Additional port
@@ -111,6 +113,9 @@ if news_api_key:
     news_client = NewsApiClient(api_key=news_api_key)
 else:
     news_client = None
+
+# Initialize portfolio generator
+portfolio_generator = PortfolioGenerator()
 
 # Pydantic models for request/response
 class StockAnalysisRequest(BaseModel):
@@ -737,4 +742,118 @@ async def generate_comprehensive_portfolio(request: ComprehensivePortfolioReques
         raise HTTPException(
             status_code=500,
             detail=f"Failed to generate portfolio: {str(e)}"
-        ) 
+        )
+
+@app.post("/api/portfolio/generate")
+async def generate_portfolio(request: PortfolioRequest):
+    """Generate investment portfolio based on user preferences"""
+    try:
+        logger.info(f"Received portfolio request: {request}")
+        
+        # Validate risk appetite
+        if request.risk_appetite not in ['conservative', 'moderate', 'aggressive']:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid risk appetite. Must be 'conservative', 'moderate', or 'aggressive'"
+            )
+        
+        # Validate investment amount
+        if request.investment_amount < 1000:
+            raise HTTPException(
+                status_code=400,
+                detail="Investment amount must be at least $1,000"
+            )
+        
+        # Generate portfolio
+        result = portfolio_generator.generate_portfolio({
+            'risk_appetite': request.risk_appetite,
+            'investment_amount': request.investment_amount,
+            'investment_period': request.investment_period,
+            'company_count': request.company_count
+        })
+        
+        if result['status'] == 'error':
+            raise HTTPException(
+                status_code=500,
+                detail=result['message']
+            )
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating portfolio: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
+
+@app.post("/api/sentiment/analyze")
+async def analyze_sentiment(request: SentimentRequest):
+    """Analyze sentiment for a given stock"""
+    try:
+        logger.info(f"Received sentiment analysis request for {request.ticker}")
+        
+        result = portfolio_generator.get_news_sentiment(
+            request.ticker,
+            request.company_name
+        )
+        
+        if result['status'] == 'error':
+            raise HTTPException(
+                status_code=500,
+                detail=result['message']
+            )
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error analyzing sentiment: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
+
+@app.get("/api/health")
+async def health_check():
+    """Health check endpoint"""
+    return {"status": "healthy"}
+
+@app.post("/portfolio/execute")
+async def execute_portfolio(portfolio_data: Dict):
+    """Execute the generated portfolio in Alpaca paper trading"""
+    try:
+        # Extract stock recommendations from portfolio data
+        stock_recommendations = portfolio_data.get("portfolio", {}).get("recommendations", {}).get("stock_recommendations", {})
+        
+        # Prepare orders for Alpaca
+        orders = []
+        for sector_stocks in stock_recommendations.values():
+            for stock in sector_stocks:
+                orders.append({
+                    "symbol": stock["symbol"],
+                    "quantity": stock["suggested_shares"]
+                })
+        
+        # Execute orders through Alpaca
+        if not orders:
+            raise HTTPException(status_code=400, detail="No valid orders found in portfolio")
+        
+        result = trading_service.create_portfolio_orders(orders)
+        
+        return {
+            "success": True,
+            "message": f"Successfully executed {result['successful_orders']} out of {result['total_orders']} orders",
+            "data": result
+        }
+        
+    except Exception as e:
+        logger.error(f"Error executing portfolio: {str(e)}")
+        return {
+            "success": False,
+            "message": f"Error executing portfolio: {str(e)}",
+            "data": None
+        } 

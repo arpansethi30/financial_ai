@@ -16,4 +16,8 @@ torchvision
 torchaudio
 alpaca-py>=0.8.0
 scikit-learn>=1.0.2
-#TA-Lib>=0.4.24 
+#TA-Lib>=0.4.24
+concurrent-log-handler>=0.9.20
+python-multipart>=0.0.6
+httpx>=0.24.1
+asyncio>=3.4.3 

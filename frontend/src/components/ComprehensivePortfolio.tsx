@@ -15,42 +15,40 @@ interface PortfolioRequest {
   risk_appetite: 'conservative' | 'moderate' | 'aggressive';
   investment_period: number;
   company_count: number;
-  sectors?: string[];
 }
 
 interface StockRecommendation {
   symbol: string;
+  company_name: string;
   weight: number;
   amount: number;
-  risk_level: string;
-  sentiment_analysis: string;
-  ai_analysis: string;
   suggested_shares: number;
-  fundamentals: {
-    current_price: number;
-    market_cap: number;
-    pe_ratio: number;
-    revenue_growth: number;
-    profit_margins: number;
+  risk_level: string;
+  current_price: number;
+  sector: string;
+  market_cap: number;
+  beta: number | null;
+  pe_ratio: number | null;
+  dividend_yield: number;
+  analysis: {
+    market: string;
+    fundamental: string;
+    overview: string;
   };
-  recent_news: Array<{
+  recent_news?: Array<{
     title: string;
     url: string;
-    source: {
-      name: string;
-    };
+    source: string;
+    description?: string;
+    date: string;
+    sentiment: number;
   }>;
 }
 
 interface PortfolioResponse {
   status: string;
+  message?: string;
   portfolio: {
-    summary: {
-      investment_amount: number;
-      risk_profile: string;
-      time_horizon: number;
-      total_stocks: number;
-    };
     recommendations: {
       stock_recommendations: Record<string, StockRecommendation[]>;
       allocation_summary: {
@@ -63,9 +61,28 @@ interface PortfolioResponse {
   };
 }
 
+interface TradingResponse {
+  success: boolean;
+  message: string;
+  data?: {
+    orders: Array<{
+      symbol: string;
+      quantity: number;
+      order_id?: string;
+      status?: string;
+      error?: string;
+    }>;
+    total_orders: number;
+    successful_orders: number;
+  };
+}
+
 const ComprehensivePortfolio: React.FC = () => {
   const [loading, setLoading] = useState(false);
+  const [tradingLoading, setTradingLoading] = useState(false);
   const [error, setError] = useState('');
+  const [tradingError, setTradingError] = useState('');
+  const [tradingSuccess, setTradingSuccess] = useState('');
   const [portfolioData, setPortfolioData] = useState<PortfolioResponse | null>(null);
   const [formData, setFormData] = useState<PortfolioRequest>({
     investment_amount: 10000,
@@ -88,7 +105,7 @@ const ComprehensivePortfolio: React.FC = () => {
     setPortfolioData(null);
 
     try {
-      const response = await fetch('http://localhost:8001/api/portfolio/comprehensive', {
+      const response = await fetch('http://localhost:8000/api/portfolio/generate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -108,6 +125,37 @@ const ComprehensivePortfolio: React.FC = () => {
       console.error('Portfolio generation error:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const executeTrades = async () => {
+    if (!portfolioData) return;
+    
+    setTradingLoading(true);
+    setTradingError('');
+    setTradingSuccess('');
+
+    try {
+      const response = await fetch('http://localhost:8000/portfolio/execute', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(portfolioData),
+      });
+
+      const data: TradingResponse = await response.json();
+      
+      if (data.success) {
+        setTradingSuccess(data.message);
+      } else {
+        setTradingError(data.message);
+      }
+    } catch (err) {
+      setTradingError(err instanceof Error ? err.message : 'Failed to execute trades');
+      console.error('Trading error:', err);
+    } finally {
+      setTradingLoading(false);
     }
   };
 
@@ -237,25 +285,25 @@ const ComprehensivePortfolio: React.FC = () => {
               <div>
                 <p className="text-sm text-gray-600">Total Investment</p>
                 <p className="text-xl font-bold text-gray-900">
-                  {formatCurrency(portfolioData.portfolio.summary.investment_amount)}
+                  {formatCurrency(portfolioData.portfolio.recommendations.allocation_summary.total_investment)}
                 </p>
               </div>
               <div>
                 <p className="text-sm text-gray-600">Risk Profile</p>
                 <p className="text-xl font-bold text-gray-900 capitalize">
-                  {portfolioData.portfolio.summary.risk_profile}
+                  {formData.risk_appetite}
                 </p>
               </div>
               <div>
                 <p className="text-sm text-gray-600">Time Horizon</p>
                 <p className="text-xl font-bold text-gray-900">
-                  {portfolioData.portfolio.summary.time_horizon} years
+                  {formData.investment_period} years
                 </p>
               </div>
               <div>
                 <p className="text-sm text-gray-600">Total Stocks</p>
                 <p className="text-xl font-bold text-gray-900">
-                  {portfolioData.portfolio.summary.total_stocks}
+                  {portfolioData.portfolio.recommendations.allocation_summary.total_stocks}
                 </p>
               </div>
             </div>
@@ -273,8 +321,8 @@ const ComprehensivePortfolio: React.FC = () => {
                         <h4 className="text-lg font-bold text-gray-900">{stock.symbol}</h4>
                         <p className="text-sm text-gray-600">
                           Risk Level: <span className={`font-medium ${
-                            stock.risk_level === 'high' ? 'text-red-600' :
-                            stock.risk_level === 'medium' ? 'text-yellow-600' :
+                            stock.risk_level === 'High' ? 'text-red-600' :
+                            stock.risk_level === 'Medium' ? 'text-yellow-600' :
                             'text-green-600'
                           }`}>{stock.risk_level}</span>
                         </p>
@@ -293,7 +341,7 @@ const ComprehensivePortfolio: React.FC = () => {
                       <div>
                         <p className="text-sm text-gray-600">Current Price</p>
                         <p className="text-base font-medium text-gray-900">
-                          {formatCurrency(stock.fundamentals.current_price)}
+                          {formatCurrency(stock.current_price)}
                         </p>
                       </div>
                       <div>
@@ -302,78 +350,95 @@ const ComprehensivePortfolio: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Sentiment and Analysis */}
-                    <div className="mt-4 space-y-4">
-                      <div className="bg-white p-4 rounded-lg border border-gray-200">
-                        <div className="prose prose-sm max-w-none text-gray-900">
-                          <div dangerouslySetInnerHTML={{ 
-                            __html: stock.sentiment_analysis
-                              .replace(/\n/g, '<br />')
-                              .replace(/•/g, '&#8226;')
-                              .replace(/\*\*(.*?)\*\*/g, '<strong class="text-gray-900">$1</strong>')
-                          }} />
+                    {/* Stock Analysis Sections */}
+                    <div className="mt-6 space-y-4">
+                      {/* Market Sentiment and Fundamental Analysis */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="bg-gray-50 p-4 rounded-lg">
+                          <h5 className="text-sm font-semibold text-gray-900 mb-2">Market Analysis</h5>
+                          <p className="text-sm text-gray-700 whitespace-pre-line">
+                            {stock.analysis.market}
+                          </p>
+                        </div>
+                        
+                        <div className="bg-gray-50 p-4 rounded-lg">
+                          <h5 className="text-sm font-semibold text-gray-900 mb-2">Fundamental Analysis</h5>
+                          <p className="text-sm text-gray-700 whitespace-pre-line">
+                            {stock.analysis.fundamental}
+                          </p>
                         </div>
                       </div>
-                      <div className="bg-white p-4 rounded-lg border border-gray-200">
-                        <div className="prose prose-sm max-w-none text-gray-900">
-                          <div dangerouslySetInnerHTML={{ 
-                            __html: stock.ai_analysis
-                              .replace(/\n/g, '<br />')
-                              .replace(/•/g, '&#8226;')
-                              .replace(/\*\*(.*?)\*\*/g, '<strong class="text-gray-900">$1</strong>')
-                          }} />
-                        </div>
-                      </div>
-                    </div>
 
-                    {/* Financial Metrics */}
-                    <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <div>
-                        <p className="text-xs text-gray-600">Market Cap</p>
-                        <p className="text-sm font-medium text-gray-900">
-                          {formatCurrency(stock.fundamentals.market_cap)}
+                      {/* AI Overview */}
+                      <div className="bg-gray-50 p-4 rounded-lg">
+                        <h5 className="text-sm font-semibold text-gray-900 mb-2">Investment Overview</h5>
+                        <p className="text-sm text-gray-700 whitespace-pre-line">
+                          {stock.analysis.overview}
                         </p>
                       </div>
-                      <div>
-                        <p className="text-xs text-gray-600">P/E Ratio</p>
-                        <p className="text-sm font-medium text-gray-900">
-                          {stock.fundamentals.pe_ratio?.toFixed(2) || 'N/A'}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-600">Revenue Growth</p>
-                        <p className="text-sm font-medium text-gray-900">
-                          {stock.fundamentals.revenue_growth?.toFixed(2)}%
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-600">Profit Margins</p>
-                        <p className="text-sm font-medium text-gray-900">
-                          {stock.fundamentals.profit_margins?.toFixed(2)}%
-                        </p>
-                      </div>
-                    </div>
 
-                    {/* Recent News */}
-                    {stock.recent_news && stock.recent_news.length > 0 && (
-                      <div className="mt-4">
-                        <p className="text-sm font-medium text-gray-900 mb-2">Recent News</p>
-                        <div className="space-y-2">
-                          {stock.recent_news.map((news, index) => (
-                            <a
-                              key={index}
-                              href={news.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="block p-2 hover:bg-gray-50 rounded-lg transition-colors"
-                            >
-                              <p className="text-sm font-medium text-gray-900">{news.title}</p>
-                              <p className="text-xs text-gray-600">Source: {news.source.name}</p>
-                            </a>
-                          ))}
+                      {/* Financial Metrics */}
+                      <div className="bg-white p-6 rounded-xl border border-gray-200">
+                        <h5 className="text-base font-semibold text-gray-900 mb-3">Key Metrics</h5>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          <div className="bg-gray-50 p-4 rounded-lg">
+                            <p className="text-xs text-gray-600 mb-1">Market Cap</p>
+                            <p className="text-sm font-medium text-gray-900">
+                              {formatCurrency(stock.market_cap)}
+                            </p>
+                          </div>
+                          <div className="bg-gray-50 p-4 rounded-lg">
+                            <p className="text-xs text-gray-600 mb-1">P/E Ratio</p>
+                            <p className="text-sm font-medium text-gray-900">
+                              {stock.pe_ratio ? stock.pe_ratio.toFixed(2) : 'N/A'}
+                            </p>
+                          </div>
+                          <div className="bg-gray-50 p-4 rounded-lg">
+                            <p className="text-xs text-gray-600 mb-1">Beta</p>
+                            <p className="text-sm font-medium text-gray-900">
+                              {stock.beta ? stock.beta.toFixed(2) : 'N/A'}
+                            </p>
+                          </div>
+                          <div className="bg-gray-50 p-4 rounded-lg">
+                            <p className="text-xs text-gray-600 mb-1">Dividend Yield</p>
+                            <p className="text-sm font-medium text-gray-900">
+                              {stock.dividend_yield ? `${(stock.dividend_yield * 100).toFixed(2)}%` : 'N/A'}
+                            </p>
+                          </div>
                         </div>
                       </div>
-                    )}
+
+                      {/* Recent News */}
+                      {stock.recent_news && stock.recent_news.length > 0 && (
+                        <div className="bg-white p-6 rounded-xl border border-gray-200">
+                          <h5 className="text-base font-semibold text-gray-900 mb-3">Recent News</h5>
+                          <div className="space-y-3">
+                            {stock.recent_news.map((news, index) => (
+                              <a
+                                key={index}
+                                href={news.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="block p-4 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
+                              >
+                                <p className="text-sm font-medium text-gray-900">{news.title}</p>
+                                <p className="text-xs text-gray-600 mt-1">Source: {news.source}</p>
+                                <p className="text-xs text-gray-500 mt-1">Date: {news.date}</p>
+                                {news.sentiment && (
+                                  <p className={`text-xs mt-1 ${
+                                    news.sentiment > 0 ? 'text-green-600' :
+                                    news.sentiment < 0 ? 'text-red-600' :
+                                    'text-gray-600'
+                                  }`}>
+                                    Sentiment: {news.sentiment > 0 ? 'Positive' : news.sentiment < 0 ? 'Negative' : 'Neutral'}
+                                  </p>
+                                )}
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -386,6 +451,39 @@ const ComprehensivePortfolio: React.FC = () => {
             <div className="prose prose-sm max-w-none">
               <p className="whitespace-pre-line">{portfolioData.portfolio.analysis}</p>
             </div>
+          </div>
+
+          {/* Trading Button */}
+          <div className="bg-white p-8 rounded-2xl border border-gray-200 shadow-lg">
+            <button
+              onClick={executeTrades}
+              disabled={tradingLoading}
+              className="w-full px-8 py-4 text-base font-medium rounded-xl 
+                        bg-blue-600 text-white
+                        hover:bg-blue-700 transition-all duration-200
+                        shadow-lg disabled:bg-gray-300 disabled:cursor-not-allowed
+                        flex items-center justify-center"
+            >
+              {tradingLoading ? (
+                <div className="flex items-center justify-center">
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                </div>
+              ) : (
+                'Execute Trades in Alpaca'
+              )}
+            </button>
+            
+            {tradingSuccess && (
+              <div className="mt-4 p-4 rounded-xl bg-green-50 border border-green-200">
+                <p className="text-green-600">{tradingSuccess}</p>
+              </div>
+            )}
+            
+            {tradingError && (
+              <div className="mt-4 p-4 rounded-xl bg-red-50 border border-red-200">
+                <p className="text-red-600">{tradingError}</p>
+              </div>
+            )}
           </div>
         </div>
       )}
